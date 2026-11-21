@@ -1,0 +1,1162 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="theme-color" content="#0b0f19" />
+  <title>Ev Güvenlik Kamerası (WebRTC + Hareket Alarmı)</title>
+  <style>
+    :root {
+      --bg: #0b0f19;
+      --card: #151c2c;
+      --subcard: #0f1626;
+      --border: #263147;
+      --text: #f1f5f9;
+      --muted: #94a3b8;
+      --primary: #3b82f6;
+      --primary-hover: #2563eb;
+      --danger: #ef4444;
+      --success: #22c55e;
+      --warn: #f59e0b;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+    body { background: var(--bg); color: var(--text); min-height: 100vh; display: flex; flex-direction: column; align-items: center; padding: 16px; }
+    .container { width: 100%; max-width: 800px; }
+    .card { background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 20px; margin-bottom: 16px; }
+    .subcard { background: var(--subcard); border: 1px solid var(--border); border-radius: 12px; padding: 16px; margin-top: 14px; }
+    h1 { font-size: 1.25rem; font-weight: 700; display: flex; align-items: center; gap: 8px; }
+    h2 { font-size: 1.05rem; margin-bottom: 10px; color: var(--text); }
+    h3 { font-size: 0.95rem; margin-bottom: 10px; color: var(--text); }
+    p.sub { color: var(--muted); font-size: 0.86rem; margin-top: 4px; line-height: 1.4; }
+    .hidden { display: none !important; }
+    .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+    .between { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; }
+    .field { margin-bottom: 12px; }
+    label { display: block; font-size: 0.83rem; color: var(--muted); margin-bottom: 5px; }
+    input[type="text"], input[type="email"], input[type="password"], input[type="number"], select {
+      width: 100%; padding: 10px 12px; border-radius: 9px; border: 1px solid var(--border);
+      background: #0d1320; color: var(--text); font-size: 0.92rem; outline: none;
+    }
+    input:focus, select:focus { border-color: var(--primary); }
+    input[type="range"] { width: 100%; accent-color: var(--primary); cursor: pointer; }
+    button {
+      padding: 10px 15px; border: none; border-radius: 9px; font-size: 0.9rem; font-weight: 600;
+      cursor: pointer; transition: 0.15s; color: #fff; background: var(--primary);
+    }
+    button:hover { background: var(--primary-hover); }
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
+    button.secondary { background: #263147; color: var(--text); }
+    button.secondary:hover { background: #33415c; }
+    button.danger { background: var(--danger); }
+    button.success { background: #16a34a; }
+    button.warn { background: #d97706; }
+    button.full { width: 100%; }
+    .badge {
+      display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px;
+      border-radius: 999px; font-size: 0.78rem; font-weight: 600; background: #1e293b; color: var(--muted);
+    }
+    .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
+    .dot.live { background: var(--success); box-shadow: 0 0 8px var(--success); }
+    .dot.warn { background: var(--warn); }
+    .dot.err { background: var(--danger); box-shadow: 0 0 8px var(--danger); }
+    .video-wrap {
+      position: relative; width: 100%; background: #000; border-radius: 12px;
+      overflow: hidden; aspect-ratio: 16 / 9; border: 1px solid var(--border); margin: 12px 0;
+    }
+    video { width: 100%; height: 100%; object-fit: contain; display: block; background: #000; }
+    .motion-badge-overlay {
+      position: absolute; top: 10px; right: 10px; padding: 5px 10px; border-radius: 8px;
+      background: rgba(239, 68, 68, 0.9); color: #fff; font-size: 0.78rem; font-weight: 700;
+      letter-spacing: 0.4px; pointer-events: none;
+    }
+    .status-bar { font-size: 0.84rem; color: var(--muted); margin-top: 8px; min-height: 20px; }
+    .error-msg { color: #fca5a5; background: rgba(239, 68, 68, 0.12); border: 1px solid rgba(239, 68, 68, 0.35); padding: 10px 12px; border-radius: 8px; font-size: 0.85rem; margin-top: 10px; }
+    .mode-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 12px; }
+    .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    @media (max-width: 560px) { .mode-grid, .grid-2 { grid-template-columns: 1fr; } }
+    .mode-card {
+      background: var(--subcard); border: 1px solid var(--border); border-radius: 12px; padding: 16px;
+      display: flex; flex-direction: column; justify-content: space-between; gap: 12px;
+    }
+    .checkbox-row { display: flex; align-items: center; gap: 8px; font-size: 0.88rem; color: var(--text); cursor: pointer; }
+    .checkbox-row input { width: auto; }
+
+    /* Hareket Seviyesi Ölçer */
+    .meter-track {
+      position: relative; width: 100%; height: 10px; background: #1e293b;
+      border-radius: 999px; overflow: hidden; margin: 6px 0 4px;
+    }
+    .meter-fill { height: 100%; width: 0%; background: var(--success); transition: width 0.2s ease, background 0.2s ease; }
+    .meter-threshold {
+      position: absolute; top: 0; bottom: 0; width: 2px; background: #f8fafc; opacity: 0.9;
+    }
+    .log-list {
+      margin-top: 10px; font-size: 0.8rem; color: var(--muted); list-style: none;
+      max-height: 110px; overflow-y: auto; border-top: 1px solid var(--border); padding-top: 8px;
+    }
+    .log-list li { padding: 3px 0; border-bottom: 1px dashed rgba(148, 163, 184, 0.12); }
+
+    /* Tam Ekran Siyah Karartma Katmanı */
+    #blackoutOverlay {
+      position: fixed; inset: 0; background: #000000; z-index: 9999;
+      display: flex; flex-direction: column; justify-content: center; align-items: center;
+      color: #2b2b2b; user-select: none; -webkit-user-select: none; touch-action: manipulation;
+      text-align: center; padding: 24px;
+    }
+    #blackoutClock { font-size: 2.2rem; font-weight: 300; letter-spacing: 2px; margin-bottom: 8px; }
+    #blackoutInfo { font-size: 0.82rem; line-height: 1.6; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <!-- Üst Başlık -->
+    <div class="card between">
+      <div>
+        <h1>Ev Güvenlik Kamerası</h1>
+        <p class="sub">WebRTC 1-to-N P2P • Canvas Hareket Algılama & Telegram Alarm</p>
+      </div>
+      <div id="userHeader" class="row hidden">
+        <span id="userEmailBadge" class="badge"></span>
+        <button id="logoutBtn" class="secondary">Çıkış</button>
+      </div>
+    </div>
+
+    <!-- 1. GİRİŞ EKRANI -->
+    <div id="loginView" class="card">
+      <h2>Yetkili Girişi</h2>
+      <form id="loginForm">
+        <div class="field">
+          <label for="emailInput">E-posta</label>
+          <input id="emailInput" type="email" required placeholder="ornek@alanadi.com" autocomplete="username" />
+        </div>
+        <div class="field">
+          <label for="passwordInput">Şifre</label>
+          <input id="passwordInput" type="password" required placeholder="••••••••" autocomplete="current-password" />
+        </div>
+        <button id="loginBtn" type="submit" class="full">Giriş Yap</button>
+        <div id="loginError" class="error-msg hidden"></div>
+      </form>
+    </div>
+
+    <!-- 2. MOD SEÇİM EKRANI -->
+    <div id="setupView" class="card hidden">
+      <h2>Oda ve Cihaz Rolü</h2>
+      <div class="field">
+        <label for="roomInput">Oda Adı (Kamera ve izleyicilerde aynı olmalı)</label>
+        <input id="roomInput" type="text" value="salon" placeholder="salon, giris, cocuk-odasi" />
+      </div>
+
+      <div class="mode-grid">
+        <div class="mode-card">
+          <div>
+            <h2>Kamera Modu (Yayıncı)</h2>
+            <p class="sub">Evde sabit duracak Android telefon/tablet için. Canlı yayın + hareket algılama + Telegram fotoğraf alarmı.</p>
+          </div>
+          <div>
+            <div class="field">
+              <label for="qualitySelect">Yayın Kalitesi (Isınma Kontrolü)</label>
+              <select id="qualitySelect">
+                <option value="720p" selected>720p (1280×720) – 12 FPS (Önerilen)</option>
+                <option value="480p">480p (854×480) – 12 FPS (Düşük Isınma / Veri)</option>
+              </select>
+            </div>
+            <label class="checkbox-row" style="margin-bottom: 12px;">
+              <input id="audioCheck" type="checkbox" checked />
+              Mikrofon sesini yayına ekle
+            </label>
+            <button id="startCameraBtn" class="full success">Kamera Yayınını Başlat</button>
+          </div>
+        </div>
+
+        <div class="mode-card">
+          <div>
+            <h2>İzleyici Modu (Monitör)</h2>
+            <p class="sub">Android, iPhone, iPad veya bilgisayardan evdeki kamerayı eş zamanlı canlı izlemek için.</p>
+          </div>
+          <div>
+            <button id="startViewerBtn" class="full">Canlı Yayına Bağlan</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 3. KAMERA (YAYINCI) EKRANI -->
+    <div id="cameraView" class="card hidden">
+      <div class="between">
+        <div class="row">
+          <span class="badge"><span id="camDot" class="dot live"></span> <span id="camRoomLabel"></span></span>
+          <span class="badge">İzleyici: <strong id="viewerCount">0</strong> / 4</span>
+          <span id="wakeLockBadge" class="badge">Ekran Kilidi: Bekleniyor</span>
+        </div>
+        <button id="stopCameraBtn" class="danger">Yayını Durdur</button>
+      </div>
+
+      <div class="video-wrap">
+        <video id="localVideo" autoplay playsinline muted></video>
+        <div id="motionAlertBadge" class="motion-badge-overlay hidden">HAREKET ALGILANDI</div>
+      </div>
+
+      <div class="row">
+        <button id="blackoutBtn" class="secondary">Ekranı Karart (7/24 Mod)</button>
+        <button id="switchCamBtn" class="secondary">Ön / Arka Kamera</button>
+        <button id="torchBtn" class="secondary hidden">Flaş: Kapalı</button>
+      </div>
+      <div id="camStatus" class="status-bar">Kamera hazır. İzleyiciler bekleniyor...</div>
+
+      <!-- HAREKET ALGILAMA & TELEGRAM ALARM PANELİ -->
+      <div class="subcard">
+        <div class="between" style="margin-bottom: 10px;">
+          <h3 style="margin-bottom: 0;">Hareket Algılama & Telegram Alarmı</h3>
+          <span id="motionStatusBadge" class="badge"><span id="motionDot" class="dot"></span> <span id="motionStateText">Pasif</span></span>
+        </div>
+
+        <div class="grid-2">
+          <div class="field">
+            <label for="tgTokenInput">Telegram Bot Token (Yalnızca bu cihaza kaydedilir)</label>
+            <input id="tgTokenInput" type="password" placeholder="123456789:ABCdefGHIjklMNO..." autocomplete="off" />
+          </div>
+          <div class="field">
+            <label for="tgChatIdInput">Telegram Chat ID</label>
+            <input id="tgChatIdInput" type="text" placeholder="Örn: 987654321" autocomplete="off" />
+          </div>
+        </div>
+
+        <div class="grid-2">
+          <div class="field">
+            <label for="motionThresholdRange">
+              Hareket Eşiği: <strong id="thresholdValLabel">%4</strong>
+              <span style="font-size: 0.76rem;">(Düşük = Daha Hassas)</span>
+            </label>
+            <input id="motionThresholdRange" type="range" min="1" max="20" step="0.5" value="4" />
+          </div>
+          <div class="field">
+            <label for="cooldownSelect">Alarmlar Arası Bekleme (Spam Önleme)</label>
+            <select id="cooldownSelect">
+              <option value="15">15 saniye</option>
+              <option value="30" selected>30 saniye (Önerilen)</option>
+              <option value="60">1 dakika</option>
+              <option value="120">2 dakika</option>
+              <option value="300">5 dakika</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- Canlı Hareket Göstergesi (Kalibrasyon İçin) -->
+        <div style="margin-bottom: 12px;">
+          <div class="between" style="font-size: 0.8rem; color: var(--muted);">
+            <span>Anlık Kare Değişimi (Kalibrasyon)</span>
+            <span id="liveMotionPct">%0.0</span>
+          </div>
+          <div class="meter-track">
+            <div id="motionMeterFill" class="meter-fill"></div>
+            <div id="motionMeterThreshold" class="meter-threshold" style="left: 20%;"></div>
+          </div>
+        </div>
+
+        <div class="row">
+          <button id="toggleMotionBtn" class="success">Hareket Algılamayı Başlat</button>
+          <button id="testTelegramBtn" class="secondary">Test Fotoğrafı Gönder</button>
+        </div>
+
+        <div id="motionStatusMsg" class="status-bar">Bot bilgilerini girip "Test Fotoğrafı Gönder" ile bağlantıyı doğrulayabilirsin.</div>
+        <ul id="alarmLogList" class="log-list hidden"></ul>
+      </div>
+    </div>
+
+    <!-- 4. İZLEYİCİ EKRANI -->
+    <div id="viewerView" class="card hidden">
+      <div class="between">
+        <div class="row">
+          <span class="badge"><span id="viewDot" class="dot warn"></span> <span id="viewStateText">Bağlanıyor...</span></span>
+          <span class="badge" id="viewRoomLabel"></span>
+        </div>
+        <button id="stopViewerBtn" class="danger">Ayrıl</button>
+      </div>
+
+      <div class="video-wrap">
+        <video id="remoteVideo" autoplay playsinline muted></video>
+      </div>
+
+      <div class="row">
+        <button id="muteToggleBtn" class="secondary">Sesi Aç (Sessizde)</button>
+        <button id="fullscreenBtn" class="secondary">Tam Ekran</button>
+        <button id="reconnectBtn" class="secondary">Yeniden Bağlan</button>
+      </div>
+      <div id="viewStatus" class="status-bar">Kamera durumu kontrol ediliyor...</div>
+    </div>
+  </div>
+
+  <!-- Siyah Karartma Katmanı -->
+  <div id="blackoutOverlay" class="hidden">
+    <div id="blackoutClock">--:--</div>
+    <div id="blackoutInfo">
+      Yayın Aktif • İzleyici: <span id="blackoutViewers">0</span><br/>
+      Hareket Alarmı: <span id="blackoutMotionState">Pasif</span><br/>
+      <span style="opacity: 0.7;">Ekranı açmak için çift dokunun</span>
+    </div>
+  </div>
+
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-app.js";
+    import { getAuth, signInWithEmailAndPassword, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js";
+    import {
+      getDatabase, ref, set, push, remove, onValue,
+      onChildAdded, onChildRemoved, onDisconnect, serverTimestamp
+    } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-database.js";
+
+    // Firebase Proje Yapılandırması (camera-5151)
+    const firebaseConfig = {
+      apiKey: "AIzaSyB0DKFBgJXCVdVALdbsS7xERIR48elErQQ",
+      authDomain: "camera-5151.firebaseapp.com",
+      databaseURL: "https://camera-5151-default-rtdb.europe-west1.firebasedatabase.app",
+      projectId: "camera-5151",
+      storageBucket: "camera-5151.firebasestorage.app",
+      messagingSenderId: "633768477814",
+      appId: "1:633768477814:web:53485b8ca5063aeeab4b57",
+      measurementId: "G-8K16PEFD9R"
+    };
+
+    // WebRTC STUN / TURN Sunucuları
+    const rtcConfig = {
+      iceServers: [
+        { urls: "stun:stun.l.google.com:19302" },
+        { urls: "stun:stun1.l.google.com:19302" },
+        { urls: "stun:stun2.l.google.com:19302" }
+      ],
+      iceCandidatePoolSize: 4
+    };
+
+    const MAX_VIEWERS = 4;
+
+    const app = initializeApp(firebaseConfig);
+    const auth = getAuth(app);
+    const db = getDatabase(app);
+
+    const $ = (id) => document.getElementById(id);
+    const loginView = $("loginView");
+    const setupView = $("setupView");
+    const cameraView = $("cameraView");
+    const viewerView = $("viewerView");
+    const userHeader = $("userHeader");
+
+    let currentUser = null;
+    let activeRole = null;
+    let currentRoom = "salon";
+
+    // Kamera Durumu
+    let localStream = null;
+    let facingMode = "environment";
+    let torchOn = false;
+    let wakeLock = null;
+    let cameraUnsubs = [];
+    const peers = new Map();
+
+    // İzleyici Durumu
+    let viewerPc = null;
+    let viewerId = null;
+    let viewerActiveSessionId = null;
+    let viewerMetaUnsub = null;
+    let viewerConnUnsubs = [];
+    let viewerCandidateQueue = [];
+
+    // =========================================================================
+    // HAREKET ALGILAMA & TELEGRAM DURUMU
+    // =========================================================================
+    const MOTION_W = 64;
+    const MOTION_H = 36;
+    const PIXEL_DIFF_LIMIT = 26;     // Bir pikselin değişti sayılması için parlaklık farkı (0-255)
+    const CHECK_INTERVAL_MS = 400;   // Saniyede 2.5 analiz (çok düşük CPU)
+    const REQUIRED_CONSECUTIVE = 2;  // Yanlış alarm önlemek için art arda 2 karede hareket şartı
+
+    const motionCanvas = document.createElement("canvas");
+    motionCanvas.width = MOTION_W;
+    motionCanvas.height = MOTION_H;
+    const motionCtx = motionCanvas.getContext("2d", { willReadFrequently: true });
+
+    const snapCanvas = document.createElement("canvas");
+    const snapCtx = snapCanvas.getContext("2d");
+
+    let motionEnabled = false;
+    let motionTimer = null;
+    let prevGrayFrame = null;
+    let consecutiveHits = 0;
+    let motionMuteUntil = 0;
+    let lastAlertSentAt = 0;
+    let isSendingTelegram = false;
+    let motionBadgeTimeout = null;
+
+    // Yerel Ayarları (localStorage) Yükle ve Kaydet
+    function loadSavedMotionSettings() {
+      $("tgTokenInput").value = localStorage.getItem("cam_tg_token") || "";
+      $("tgChatIdInput").value = localStorage.getItem("cam_tg_chat_id") || "";
+      const savedThresh = localStorage.getItem("cam_motion_threshold") || "4";
+      const savedCool = localStorage.getItem("cam_motion_cooldown") || "30";
+      $("motionThresholdRange").value = savedThresh;
+      $("cooldownSelect").value = savedCool;
+      updateThresholdVisual();
+    }
+
+    function saveMotionSettings() {
+      localStorage.setItem("cam_tg_token", $("tgTokenInput").value.trim());
+      localStorage.setItem("cam_tg_chat_id", $("tgChatIdInput").value.trim());
+      localStorage.setItem("cam_motion_threshold", $("motionThresholdRange").value);
+      localStorage.setItem("cam_motion_cooldown", $("cooldownSelect").value);
+    }
+
+    function updateThresholdVisual() {
+      const val = parseFloat($("motionThresholdRange").value);
+      $("thresholdValLabel").textContent = `%${val}`;
+      // Gösterge barı 0 - %20 aralığını temsil eder
+      const markerPct = Math.min(100, (val / 20) * 100);
+      $("motionMeterThreshold").style.left = `${markerPct}%`;
+    }
+
+    ["tgTokenInput", "tgChatIdInput", "cooldownSelect"].forEach((id) => {
+      $(id).addEventListener("change", saveMotionSettings);
+    });
+    $("motionThresholdRange").addEventListener("input", () => {
+      updateThresholdVisual();
+      saveMotionSettings();
+    });
+    loadSavedMotionSettings();
+
+    function addAlarmLog(text) {
+      const list = $("alarmLogList");
+      list.classList.remove("hidden");
+      const li = document.createElement("li");
+      const timeStr = new Date().toLocaleTimeString("tr-TR");
+      li.textContent = `[${timeStr}] ${text}`;
+      list.prepend(li);
+      while (list.children.length > 8) {
+        list.removeChild(list.lastChild);
+      }
+    }
+
+    function pauseMotionTemporarily(ms = 3000) {
+      prevGrayFrame = null;
+      consecutiveHits = 0;
+      motionMuteUntil = Date.now() + ms;
+    }
+
+    function updateMotionUI(active) {
+      if (active) {
+        $("motionDot").className = "dot live";
+        $("motionStateText").textContent = "Aktif (Nöbette)";
+        $("toggleMotionBtn").textContent = "Hareket Algılamayı Durdur";
+        $("toggleMotionBtn").className = "warn";
+        $("blackoutMotionState").textContent = "Aktif";
+      } else {
+        $("motionDot").className = "dot";
+        $("motionStateText").textContent = "Pasif";
+        $("toggleMotionBtn").textContent = "Hareket Algılamayı Başlat";
+        $("toggleMotionBtn").className = "success";
+        $("blackoutMotionState").textContent = "Pasif";
+        $("motionMeterFill").style.width = "0%";
+        $("liveMotionPct").textContent = "%0.0";
+      }
+    }
+
+    function startMotionDetection() {
+      if (motionEnabled || !localStream) return;
+      saveMotionSettings();
+
+      motionEnabled = true;
+      pauseMotionTemporarily(3000); // İlk 3 sn kamera ışığının oturması için bekle
+      updateMotionUI(true);
+      $("motionStatusMsg").textContent = "Kamera ışığı dengeleniyor (3 sn), ardından hareket takibi başlayacak...";
+
+      motionTimer = setInterval(analyzeMotionFrame, CHECK_INTERVAL_MS);
+    }
+
+    function stopMotionDetection() {
+      motionEnabled = false;
+      if (motionTimer) {
+        clearInterval(motionTimer);
+        motionTimer = null;
+      }
+      prevGrayFrame = null;
+      consecutiveHits = 0;
+      $("motionAlertBadge").classList.add("hidden");
+      updateMotionUI(false);
+    }
+
+    function analyzeMotionFrame() {
+      const video = $("localVideo");
+      if (!motionEnabled || !video || video.readyState < 2 || video.videoWidth === 0) return;
+
+      const now = Date.now();
+      motionCtx.drawImage(video, 0, 0, MOTION_W, MOTION_H);
+      const pixels = motionCtx.getImageData(0, 0, MOTION_W, MOTION_H).data;
+      const totalPixels = MOTION_W * MOTION_H;
+      const currGray = new Uint8Array(totalPixels);
+
+      // Hızlı gri tonlama dönüşümü (bit kaydırma ile minimum CPU)
+      for (let i = 0, p = 0; i < totalPixels; i++, p += 4) {
+        currGray[i] = (pixels[p] + (pixels[p + 1] << 1) + pixels[p + 2]) >> 2;
+      }
+
+      if (now < motionMuteUntil) {
+        prevGrayFrame = currGray;
+        return;
+      }
+
+      if (!prevGrayFrame) {
+        prevGrayFrame = currGray;
+        $("motionStatusMsg").textContent = "Hareket algılama devrede. Eşik aşılınca Telegram fotoğrafı gönderilir.";
+        return;
+      }
+
+      let changed = 0;
+      for (let i = 0; i < totalPixels; i++) {
+        if (Math.abs(currGray[i] - prevGrayFrame[i]) > PIXEL_DIFF_LIMIT) {
+          changed++;
+        }
+      }
+      prevGrayFrame = currGray;
+
+      const changePct = (changed / totalPixels) * 100;
+      const thresholdPct = parseFloat($("motionThresholdRange").value);
+
+      // Kalibrasyon göstergesini güncelle
+      $("liveMotionPct").textContent = `%${changePct.toFixed(1)}`;
+      const fillWidth = Math.min(100, (changePct / 20) * 100);
+      $("motionMeterFill").style.width = `${fillWidth}%`;
+      $("motionMeterFill").style.background = changePct >= thresholdPct ? "var(--danger)" : "var(--success)";
+
+      if (changePct >= thresholdPct) {
+        consecutiveHits++;
+      } else {
+        consecutiveHits = 0;
+      }
+
+      if (consecutiveHits >= REQUIRED_CONSECUTIVE) {
+        consecutiveHits = 0;
+        handleMotionTriggered(changePct);
+      }
+    }
+
+    async function handleMotionTriggered(changePct) {
+      // Video üzerinde görsel alarm etiketi göster
+      $("motionAlertBadge").classList.remove("hidden");
+      clearTimeout(motionBadgeTimeout);
+      motionBadgeTimeout = setTimeout(() => {
+        $("motionAlertBadge").classList.add("hidden");
+      }, 3000);
+
+      const cooldownMs = parseInt($("cooldownSelect").value, 10) * 1000;
+      const now = Date.now();
+      if (now - lastAlertSentAt < cooldownMs) {
+        const kalan = Math.ceil((cooldownMs - (now - lastAlertSentAt)) / 1000);
+        $("motionStatusMsg").textContent = `Hareket (%${changePct.toFixed(1)}) görüldü; bekleme süresi nedeniyle bekleniyor (${kalan} sn).`;
+        return;
+      }
+
+      const token = $("tgTokenInput").value.trim();
+      const chatId = $("tgChatIdInput").value.trim();
+      if (!token || !chatId) {
+        $("motionStatusMsg").textContent = `Hareket (%${changePct.toFixed(1)}) algılandı ancak Telegram Token/Chat ID girilmemiş.`;
+        addAlarmLog(`Hareket algılandı (%${changePct.toFixed(1)}) - Telegram ayarı eksik`);
+        lastAlertSentAt = now;
+        return;
+      }
+
+      lastAlertSentAt = now;
+      await captureAndSendTelegramPhoto(changePct, false);
+    }
+
+    async function captureAndSendTelegramPhoto(changePct, isTest = false) {
+      if (isSendingTelegram) return;
+      const video = $("localVideo");
+      const token = $("tgTokenInput").value.trim();
+      const chatId = $("tgChatIdInput").value.trim();
+
+      if (!token || !chatId) {
+        $("motionStatusMsg").textContent = "Lütfen önce Telegram Bot Token ve Chat ID alanlarını doldur.";
+        return;
+      }
+      if (!video || video.readyState < 2 || video.videoWidth === 0) {
+        $("motionStatusMsg").textContent = "Kamera görüntüsü henüz hazır değil.";
+        return;
+      }
+
+      isSendingTelegram = true;
+      $("motionStatusMsg").textContent = isTest ? "Test fotoğrafı Telegram'a gönderiliyor..." : "Hareket algılandı! Fotoğraf gönderiliyor...";
+
+      try {
+        // Maksimum 1280px genişlikte yüksek netlikli JPEG kare yakala
+        const scale = Math.min(1, 1280 / video.videoWidth);
+        const w = Math.round(video.videoWidth * scale);
+        const h = Math.round(video.videoHeight * scale);
+        snapCanvas.width = w;
+        snapCanvas.height = h;
+        snapCtx.drawImage(video, 0, 0, w, h);
+
+        // Sol alt köşeye zaman damgası ekle
+        const nowStr = new Date().toLocaleString("tr-TR");
+        const stampText = `${currentRoom.toUpperCase()} | ${nowStr}` + (isTest ? " | TEST" : ` | Hareket: %${changePct.toFixed(1)}`);
+        snapCtx.font = `bold ${Math.max(14, Math.round(w / 48))}px sans-serif`;
+        const textW = snapCtx.measureText(stampText).width;
+        const barH = Math.max(26, Math.round(w / 28));
+        snapCtx.fillStyle = "rgba(0, 0, 0, 0.65)";
+        snapCtx.fillRect(10, h - barH - 10, textW + 20, barH);
+        snapCtx.fillStyle = "#ffffff";
+        snapCtx.fillText(stampText, 20, h - 10 - Math.round(barH * 0.28));
+
+        const blob = await new Promise((resolve) => snapCanvas.toBlob(resolve, "image/jpeg", 0.82));
+        if (!blob) throw new Error("Fotoğraf oluşturulamadı.");
+
+        const caption = isTest
+          ? `✅ [TEST] ${currentRoom.toUpperCase()} kamerası Telegram bağlantısı başarılı.\n🕒 ${nowStr}`
+          : `🚨 HAREKET ALGILANDI!\n📍 Oda: ${currentRoom.toUpperCase()}\n📊 Değişim: %${changePct.toFixed(1)}\n🕒 ${nowStr}`;
+
+        const formData = new FormData();
+        formData.append("chat_id", chatId);
+        formData.append("photo", blob, `cam_${currentRoom}_${Date.now()}.jpg`);
+        formData.append("caption", caption);
+
+        const response = await fetch(`https://api.telegram.org/bot${token}/sendPhoto`, {
+          method: "POST",
+          body: formData
+        });
+        const result = await response.json();
+
+        if (!response.ok || !result.ok) {
+          throw new Error(result.description || `HTTP ${response.status}`);
+        }
+
+        const timeOnly = new Date().toTimeString().slice(0, 5);
+        if (isTest) {
+          $("motionStatusMsg").textContent = "Test fotoğrafı Telegram'a başarıyla gönderildi.";
+          addAlarmLog("Test fotoğrafı gönderildi");
+        } else {
+          $("motionStatusMsg").textContent = `Alarm fotoğrafı gönderildi (${timeOnly} • %${changePct.toFixed(1)}).`;
+          $("blackoutMotionState").textContent = `Aktif (Son Alarm: ${timeOnly})`;
+          addAlarmLog(`Telegram alarmı gönderildi (%${changePct.toFixed(1)})`);
+        }
+      } catch (err) {
+        $("motionStatusMsg").textContent = "Telegram hatası: " + err.message;
+        addAlarmLog("Telegram gönderim hatası: " + err.message);
+      } finally {
+        isSendingTelegram = false;
+      }
+    }
+
+    $("toggleMotionBtn").addEventListener("click", () => {
+      if (motionEnabled) {
+        stopMotionDetection();
+        $("motionStatusMsg").textContent = "Hareket algılama durduruldu.";
+      } else {
+        startMotionDetection();
+      }
+    });
+
+    $("testTelegramBtn").addEventListener("click", () => {
+      saveMotionSettings();
+      captureAndSendTelegramPhoto(0, true);
+    });
+
+    // =========================================================================
+    // YARDIMCI FONKSİYONLAR & KİMLİK DOĞRULAMA
+    // =========================================================================
+    function sanitizeRoom(name) {
+      return (name || "salon").trim().toLowerCase().replace(/[^a-z0-9_-]/g, "") || "salon";
+    }
+
+    function showSection(section) {
+      [loginView, setupView, cameraView, viewerView].forEach((el) => el.classList.add("hidden"));
+      section.classList.remove("hidden");
+    }
+
+    function updateViewerCountUI() {
+      const count = peers.size;
+      $("viewerCount").textContent = String(count);
+      $("blackoutViewers").textContent = String(count);
+    }
+
+    onAuthStateChanged(auth, (user) => {
+      currentUser = user;
+      if (user) {
+        $("userEmailBadge").textContent = user.email;
+        userHeader.classList.remove("hidden");
+        if (!activeRole) showSection(setupView);
+      } else {
+        cleanupAll();
+        userHeader.classList.add("hidden");
+        showSection(loginView);
+      }
+    });
+
+    $("loginForm").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      $("loginError").classList.add("hidden");
+      $("loginBtn").disabled = true;
+      try {
+        await signInWithEmailAndPassword(auth, $("emailInput").value.trim(), $("passwordInput").value);
+      } catch (err) {
+        $("loginError").textContent = "Giriş başarısız: " + err.message;
+        $("loginError").classList.remove("hidden");
+      } finally {
+        $("loginBtn").disabled = false;
+      }
+    });
+
+    $("logoutBtn").addEventListener("click", async () => {
+      await cleanupAll();
+      await signOut(auth);
+    });
+
+    // =========================================================================
+    // WAKE LOCK & SİYAH KARARTMA KATMANI
+    // =========================================================================
+    async function requestWakeLock() {
+      if (!("wakeLock" in navigator)) {
+        $("wakeLockBadge").textContent = "Ekran Kilidi: Desteklenmiyor";
+        return;
+      }
+      try {
+        wakeLock = await navigator.wakeLock.request("screen");
+        $("wakeLockBadge").textContent = "Ekran: Uyanık";
+        wakeLock.addEventListener("release", () => {
+          $("wakeLockBadge").textContent = "Ekran: Serbest";
+        });
+      } catch (err) {
+        $("wakeLockBadge").textContent = "Ekran Kilidi: Alınamadı";
+      }
+    }
+
+    function releaseWakeLock() {
+      if (wakeLock) {
+        wakeLock.release().catch(() => {});
+        wakeLock = null;
+      }
+    }
+
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "visible" && activeRole === "camera") {
+        requestWakeLock();
+      }
+    });
+
+    setInterval(() => {
+      if (!$("blackoutOverlay").classList.contains("hidden")) {
+        $("blackoutClock").textContent = new Date().toTimeString().slice(0, 5);
+      }
+    }, 1000);
+
+    $("blackoutBtn").addEventListener("click", () => {
+      $("blackoutClock").textContent = new Date().toTimeString().slice(0, 5);
+      $("blackoutOverlay").classList.remove("hidden");
+      if (document.documentElement.requestFullscreen) {
+        document.documentElement.requestFullscreen().catch(() => {});
+      }
+    });
+
+    let lastTap = 0;
+    $("blackoutOverlay").addEventListener("click", () => {
+      const now = Date.now();
+      if (now - lastTap < 350) {
+        $("blackoutOverlay").classList.add("hidden");
+        if (document.fullscreenElement) {
+          document.exitFullscreen().catch(() => {});
+        }
+      }
+      lastTap = now;
+    });
+
+    // =========================================================================
+    // KAMERA (YAYINCI) MODU — 1-to-N P2P
+    // =========================================================================
+    async function getCameraStream(withAudio = $("audioCheck").checked) {
+      const is720 = $("qualitySelect").value === "720p";
+      const constraints = {
+        video: {
+          facingMode: { ideal: facingMode },
+          width: { ideal: is720 ? 1280 : 854 },
+          height: { ideal: is720 ? 720 : 480 },
+          frameRate: { ideal: 12, max: 15 }
+        },
+        audio: withAudio
+      };
+      return await navigator.mediaDevices.getUserMedia(constraints);
+    }
+
+    function updateTorchAvailability() {
+      const videoTrack = localStream?.getVideoTracks()[0];
+      const caps = videoTrack?.getCapabilities ? videoTrack.getCapabilities() : {};
+      if (caps.torch) {
+        $("torchBtn").classList.remove("hidden");
+        torchOn = false;
+        $("torchBtn").textContent = "Flaş: Kapalı";
+      } else {
+        $("torchBtn").classList.add("hidden");
+      }
+    }
+
+    $("startCameraBtn").addEventListener("click", async () => {
+      currentRoom = sanitizeRoom($("roomInput").value);
+      $("roomInput").value = currentRoom;
+      activeRole = "camera";
+      showSection(cameraView);
+      $("camRoomLabel").textContent = "Oda: " + currentRoom;
+      $("camDot").className = "dot warn";
+      $("camStatus").textContent = "Kamera başlatılıyor...";
+
+      try {
+        localStream = await getCameraStream();
+        $("localVideo").srcObject = localStream;
+        updateTorchAvailability();
+        await requestWakeLock();
+
+        const metaRef = ref(db, `rooms/${currentRoom}/meta`);
+        const viewersRef = ref(db, `rooms/${currentRoom}/viewers`);
+
+        await remove(viewersRef);
+
+        const sessionId = "s_" + Date.now() + "_" + Math.random().toString(36).slice(2, 7);
+        await onDisconnect(metaRef).remove();
+        await onDisconnect(viewersRef).remove();
+        await set(metaRef, {
+          online: true,
+          sessionId,
+          quality: $("qualitySelect").value,
+          updatedAt: serverTimestamp()
+        });
+
+        $("camDot").className = "dot live";
+        $("camStatus").textContent = "Yayın aktif. İzleyiciler bağlandığında görüntü otomatik aktarılır.";
+
+        const unsubAdd = onChildAdded(viewersRef, (snap) => {
+          const vId = snap.key;
+          if (!vId || peers.has(vId)) return;
+          if (peers.size >= MAX_VIEWERS) {
+            $("camStatus").textContent = `Maksimum izleyici sınırına (${MAX_VIEWERS}) ulaşıldı.`;
+            return;
+          }
+          createPeerForViewer(vId);
+        });
+
+        const unsubRemove = onChildRemoved(viewersRef, (snap) => {
+          closePeerForViewer(snap.key);
+        });
+
+        cameraUnsubs.push(unsubAdd, unsubRemove);
+      } catch (err) {
+        $("camStatus").textContent = "Kamera başlatılamadı: " + err.message;
+        $("camDot").className = "dot err";
+      }
+    });
+
+    async function createPeerForViewer(vId) {
+      const pc = new RTCPeerConnection(rtcConfig);
+      const candidateQueue = [];
+      const unsubs = [];
+      peers.set(vId, { pc, unsubs, candidateQueue });
+      updateViewerCountUI();
+
+      const basePath = `rooms/${currentRoom}/viewers/${vId}`;
+      const offerRef = ref(db, `${basePath}/offer`);
+      const answerRef = ref(db, `${basePath}/answer`);
+      const camCandRef = ref(db, `${basePath}/cameraCandidates`);
+      const viewCandRef = ref(db, `${basePath}/viewerCandidates`);
+
+      localStream.getTracks().forEach((track) => pc.addTrack(track, localStream));
+
+      pc.onicecandidate = (event) => {
+        if (event.candidate) {
+          push(camCandRef, event.candidate.toJSON()).catch(() => {});
+        }
+      };
+
+      pc.oniceconnectionstatechange = () => {
+        if (pc.iceConnectionState === "failed" || pc.iceConnectionState === "closed") {
+          closePeerForViewer(vId);
+        }
+      };
+
+      const unsubAns = onValue(answerRef, async (snap) => {
+        const answer = snap.val();
+        if (!answer || pc.currentRemoteDescription) return;
+        try {
+          await pc.setRemoteDescription(new RTCSessionDescription(answer));
+          while (candidateQueue.length > 0) {
+            const c = candidateQueue.shift();
+            await pc.addIceCandidate(new RTCIceCandidate(c)).catch(() => {});
+          }
+        } catch (err) {
+          console.error("Answer işlenemedi:", err);
+        }
+      });
+
+      const unsubCand = onChildAdded(viewCandRef, async (snap) => {
+        const cand = snap.val();
+        if (!cand) return;
+        if (pc.remoteDescription) {
+          await pc.addIceCandidate(new RTCIceCandidate(cand)).catch(() => {});
+        } else {
+          candidateQueue.push(cand);
+        }
+      });
+
+      unsubs.push(unsubAns, unsubCand);
+
+      try {
+        const offer = await pc.createOffer();
+        await pc.setLocalDescription(offer);
+        await set(offerRef, { type: offer.type, sdp: offer.sdp });
+      } catch (err) {
+        console.error("Offer oluşturulamadı:", err);
+        closePeerForViewer(vId);
+      }
+    }
+
+    function closePeerForViewer(vId) {
+      const entry = peers.get(vId);
+      if (!entry) return;
+      entry.unsubs.forEach((fn) => fn());
+      try { entry.pc.close(); } catch (_) {}
+      peers.delete(vId);
+      updateViewerCountUI();
+    }
+
+    $("switchCamBtn").addEventListener("click", async () => {
+      if (!localStream) return;
+      facingMode = facingMode === "environment" ? "user" : "environment";
+      $("camStatus").textContent = "Kamera değiştiriliyor...";
+      pauseMotionTemporarily(3500); // Kamera değişiminde yanlış alarmı engelle
+      try {
+        localStream.getVideoTracks().forEach((t) => t.stop());
+        const newVideoStream = await getCameraStream(false);
+        const newVideoTrack = newVideoStream.getVideoTracks()[0];
+
+        const oldAudioTracks = localStream.getAudioTracks();
+        localStream = new MediaStream([newVideoTrack, ...oldAudioTracks]);
+        $("localVideo").srcObject = localStream;
+
+        for (const { pc } of peers.values()) {
+          const sender = pc.getSenders().find((s) => s.track && s.track.kind === "video");
+          if (sender) await sender.replaceTrack(newVideoTrack);
+        }
+        updateTorchAvailability();
+        $("camStatus").textContent = "Kamera değiştirildi (" + (facingMode === "environment" ? "Arka" : "Ön") + ").";
+      } catch (err) {
+        $("camStatus").textContent = "Kamera değiştirilemedi: " + err.message;
+      }
+    });
+
+    $("torchBtn").addEventListener("click", async () => {
+      const videoTrack = localStream?.getVideoTracks()[0];
+      if (!videoTrack) return;
+      torchOn = !torchOn;
+      pauseMotionTemporarily(3000); // Flaş ışık değişiminde yanlış alarmı engelle
+      try {
+        await videoTrack.applyConstraints({ advanced: [{ torch: torchOn }] });
+        $("torchBtn").textContent = torchOn ? "Flaş: Açık" : "Flaş: Kapalı";
+      } catch (err) {
+        torchOn = !torchOn;
+        $("camStatus").textContent = "Flaş bu cihazda kontrol edilemiyor.";
+      }
+    });
+
+    async function stopCamera() {
+      stopMotionDetection();
+      cameraUnsubs.forEach((fn) => fn());
+      cameraUnsubs = [];
+      for (const vId of Array.from(peers.keys())) {
+        closePeerForViewer(vId);
+      }
+      if (localStream) {
+        localStream.getTracks().forEach((t) => t.stop());
+        localStream = null;
+      }
+      $("localVideo").srcObject = null;
+      releaseWakeLock();
+      $("blackoutOverlay").classList.add("hidden");
+      if (currentRoom) {
+        await remove(ref(db, `rooms/${currentRoom}/meta`)).catch(() => {});
+        await remove(ref(db, `rooms/${currentRoom}/viewers`)).catch(() => {});
+      }
+    }
+
+    $("stopCameraBtn").addEventListener("click", async () => {
+      await stopCamera();
+      activeRole = null;
+      showSection(setupView);
+    });
+
+    // =========================================================================
+    // İZLEYİCİ MODU (Android, iOS, PC)
+    // =========================================================================
+    $("startViewerBtn").addEventListener("click", () => {
+      currentRoom = sanitizeRoom($("roomInput").value);
+      $("roomInput").value = currentRoom;
+      activeRole = "viewer";
+      showSection(viewerView);
+      $("viewRoomLabel").textContent = "Oda: " + currentRoom;
+      startWatchingRoom();
+    });
+
+    function setViewerUIState(type, title, detail) {
+      $("viewDot").className = "dot " + type;
+      $("viewStateText").textContent = title;
+      if (detail) $("viewStatus").textContent = detail;
+    }
+
+    function startWatchingRoom() {
+      if (viewerMetaUnsub) viewerMetaUnsub();
+      viewerActiveSessionId = null;
+
+      const metaRef = ref(db, `rooms/${currentRoom}/meta`);
+      viewerMetaUnsub = onValue(metaRef, (snap) => {
+        const meta = snap.val();
+        if (!meta || !meta.online) {
+          cleanupViewerConnection();
+          viewerActiveSessionId = null;
+          setViewerUIState("warn", "Kamera Çevrimdışı", "Evdeki kamera yayına geçtiğinde bağlantı otomatik kurulacak...");
+          return;
+        }
+        if (meta.sessionId !== viewerActiveSessionId) {
+          viewerActiveSessionId = meta.sessionId;
+          connectToCamera();
+        }
+      });
+    }
+
+    async function connectToCamera() {
+      await cleanupViewerConnection();
+      setViewerUIState("warn", "Bağlanıyor...", "Kamera ile şifreli P2P tüneli kuruluyor...");
+
+      viewerId = "v_" + currentUser.uid.slice(0, 6) + "_" + Math.random().toString(36).slice(2, 8);
+      const basePath = `rooms/${currentRoom}/viewers/${viewerId}`;
+      const viewerRef = ref(db, basePath);
+      const offerRef = ref(db, `${basePath}/offer`);
+      const answerRef = ref(db, `${basePath}/answer`);
+      const camCandRef = ref(db, `${basePath}/cameraCandidates`);
+      const viewCandRef = ref(db, `${basePath}/viewerCandidates`);
+
+      viewerPc = new RTCPeerConnection(rtcConfig);
+      viewerCandidateQueue = [];
+
+      viewerPc.ontrack = (event) => {
+        const remoteVideo = $("remoteVideo");
+        if (remoteVideo.srcObject !== event.streams[0]) {
+          remoteVideo.srcObject = event.streams[0];
+          remoteVideo.play().catch(() => {});
+        }
+      };
+
+      viewerPc.onicecandidate = (event) => {
+        if (event.candidate) {
+          push(viewCandRef, event.candidate.toJSON()).catch(() => {});
+        }
+      };
+
+      viewerPc.oniceconnectionstatechange = () => {
+        if (!viewerPc) return;
+        const st = viewerPc.iceConnectionState;
+        if (st === "connected" || st === "completed") {
+          setViewerUIState("live", "Canlı", "Doğrudan P2P bağlantı aktif.");
+        } else if (st === "disconnected") {
+          setViewerUIState("warn", "Kesinti", "Bağlantı zayıfladı, tekrar deneniyor...");
+        } else if (st === "failed") {
+          setViewerUIState("err", "Bağlantı Hatası", "Mobil veride CGNAT engeli olabilir. 'Yeniden Bağlan' deneyin veya TURN sunucusu ekleyin.");
+        }
+      };
+
+      await onDisconnect(viewerRef).remove();
+
+      const unsubOffer = onValue(offerRef, async (snap) => {
+        const offer = snap.val();
+        if (!offer || !viewerPc || viewerPc.currentRemoteDescription) return;
+        try {
+          await viewerPc.setRemoteDescription(new RTCSessionDescription(offer));
+          while (viewerCandidateQueue.length > 0) {
+            const c = viewerCandidateQueue.shift();
+            await viewerPc.addIceCandidate(new RTCIceCandidate(c)).catch(() => {});
+          }
+          const answer = await viewerPc.createAnswer();
+          await viewerPc.setLocalDescription(answer);
+          await set(answerRef, { type: answer.type, sdp: answer.sdp });
+        } catch (err) {
+          setViewerUIState("err", "El Sıkışma Hatası", err.message);
+        }
+      });
+
+      const unsubCamCand = onChildAdded(camCandRef, async (snap) => {
+        const cand = snap.val();
+        if (!cand || !viewerPc) return;
+        if (viewerPc.remoteDescription) {
+          await viewerPc.addIceCandidate(new RTCIceCandidate(cand)).catch(() => {});
+        } else {
+          viewerCandidateQueue.push(cand);
+        }
+      });
+
+      viewerConnUnsubs.push(unsubOffer, unsubCamCand);
+      await set(viewerRef, { joinedAt: serverTimestamp() });
+    }
+
+    async function cleanupViewerConnection() {
+      viewerConnUnsubs.forEach((fn) => fn());
+      viewerConnUnsubs = [];
+      viewerCandidateQueue = [];
+      if (viewerPc) {
+        try { viewerPc.close(); } catch (_) {}
+        viewerPc = null;
+      }
+      $("remoteVideo").srcObject = null;
+      if (viewerId && currentRoom) {
+        const oldId = viewerId;
+        viewerId = null;
+        await remove(ref(db, `rooms/${currentRoom}/viewers/${oldId}`)).catch(() => {});
+      }
+    }
+
+    async function stopViewer() {
+      if (viewerMetaUnsub) {
+        viewerMetaUnsub();
+        viewerMetaUnsub = null;
+      }
+      viewerActiveSessionId = null;
+      await cleanupViewerConnection();
+    }
+
+    $("stopViewerBtn").addEventListener("click", async () => {
+      await stopViewer();
+      activeRole = null;
+      showSection(setupView);
+    });
+
+    $("reconnectBtn").addEventListener("click", () => {
+      if (viewerActiveSessionId) connectToCamera();
+      else startWatchingRoom();
+    });
+
+    $("muteToggleBtn").addEventListener("click", () => {
+      const vid = $("remoteVideo");
+      vid.muted = !vid.muted;
+      $("muteToggleBtn").textContent = vid.muted ? "Sesi Aç (Sessizde)" : "Sesi Kapat (Sesli)";
+      vid.play().catch(() => {});
+    });
+
+    $("fullscreenBtn").addEventListener("click", () => {
+      const vid = $("remoteVideo");
+      if (vid.requestFullscreen) vid.requestFullscreen();
+      else if (vid.webkitEnterFullscreen) vid.webkitEnterFullscreen();
+    });
+
+    async function cleanupAll() {
+      if (activeRole === "camera") await stopCamera();
+      if (activeRole === "viewer") await stopViewer();
+      activeRole = null;
+    }
+
+    window.addEventListener("pagehide", () => {
+      if (activeRole === "viewer" && viewerId && currentRoom) {
+        remove(ref(db, `rooms/${currentRoom}/viewers/${viewerId}`));
+      }
+    });
+  </script>
+</body>
+</html>
