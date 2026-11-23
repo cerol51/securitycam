@@ -110,6 +110,43 @@
           </div>
         </div>
       </div>
+
+      <!-- Gelişmiş Ağ, TURN & Telegram Proxy Ayarları -->
+      <details class="subcard network-details">
+        <summary class="between" style="cursor: pointer; list-style: none;">
+          <strong style="font-size: 0.9rem;">Gelişmiş Ağ, TURN & Telegram Proxy Ayarları (Opsiyonel)</strong>
+          <span id="turnStatusBadge" class="badge">Yalnızca STUN</span>
+        </summary>
+        <div style="margin-top: 12px;">
+          <p class="sub" style="margin-bottom: 12px;">
+            Mobil veride (CGNAT) kesintisiz bağlantı ve Telegram Bot Token'ını sunucuda güvenle saklamak için kendi Cloudflare Worker adresinizi veya manuel TURN sunucusu bilgilerinizi girebilirsiniz.
+          </p>
+          <div class="field">
+            <label for="proxyUrlInput">Cloudflare Worker Proxy URL (Önerilen — TURN + Telegram Proxy)</label>
+            <input id="proxyUrlInput" type="text" placeholder="https://securitycam-proxy.hesabiniz.workers.dev" autocomplete="off" />
+          </div>
+          <div class="field">
+            <label for="turnUrlsInput">Manuel TURN URL (Virgülle ayrılabilir, opsiyonel)</label>
+            <input id="turnUrlsInput" type="text" placeholder="turn:sunucu:3478, turns:sunucu:5349?transport=tcp" autocomplete="off" />
+          </div>
+          <div class="grid-2">
+            <div class="field">
+              <label for="turnUserInput">TURN Kullanıcı Adı</label>
+              <input id="turnUserInput" type="text" placeholder="Opsiyonel" autocomplete="off" />
+            </div>
+            <div class="field">
+              <label for="turnPassInput">TURN Şifre / Credential</label>
+              <input id="turnPassInput" type="password" placeholder="Opsiyonel" autocomplete="off" />
+            </div>
+          </div>
+          <div class="row">
+            <button id="saveNetworkBtn" type="button" class="compact">Kaydet</button>
+            <button id="testTurnBtn" type="button" class="secondary compact">ICE / TURN Test Et</button>
+            <button id="clearNetworkBtn" type="button" class="secondary compact">Temizle</button>
+          </div>
+          <div id="networkSettingsStatus" class="status-bar">Ayarlar yalnızca bu cihaza kaydedilir.</div>
+        </div>
+      </details>
     </div>
 
     <!-- 3. KAMERA (YAYINCI) EKRANI -->
@@ -149,6 +186,8 @@
           <h3 style="margin-bottom: 0;">Hareket Algılama & Telegram Alarmı</h3>
           <span id="motionStatusBadge" class="badge"><span id="motionDot" class="dot"></span> <span id="motionStateText">Pasif</span></span>
         </div>
+
+        <div id="tgProxyModeHint" class="proxy-hint hidden"></div>
 
         <div class="grid-2">
           <div class="field">

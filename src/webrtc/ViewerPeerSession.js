@@ -1,7 +1,8 @@
 // Tekli ve 2×2 Grid izleyicileri için ortak WebRTC P2P oturum yöneticisi
-// Özellikler: Yarış durumu koruması, oda dolu (room_full) algılama, exponential backoff otomatik yeniden bağlanma
+// Özellikler: Dinamik TURN/STUN, profil bildirimi (single/grid), yarış durumu koruması,
+// oda dolu algılama, exponential backoff otomatik yeniden bağlanma ve P2P/TURN istatistik okuması
 
-import { RTC_CONFIG, LIMITS, DB_PATHS } from "../config.js";
+import { LIMITS, DB_PATHS } from "../config.js";
 import {
   db,
   ref,
@@ -13,14 +14,17 @@ import {
   onDisconnect,
   serverTimestamp
 } from "../services/firebase.js";
+import { getRtcConfig, inspectActiveConnectionStats } from "../services/iceConfig.js";
 
 export class ViewerPeerSession {
   constructor({
     roomName,
     uid,
     idPrefix = "v",
+    profile = "single",
     onStream = () => {},
     onIceStateChange = () => {},
+    onStatsReady = () => {},
     onRemoteOfferApplied = null,
     onReconnecting = () => {},
     onRejected = () => {},
@@ -29,8 +33,10 @@ export class ViewerPeerSession {
     this.roomName = roomName;
     this.uid = uid;
     this.idPrefix = idPrefix;
+    this.profile = profile === "grid" ? "grid" : "single";
     this.onStream = onStream;
     this.onIceStateChange = onIceStateChange;
+    this.onStatsReady = onStatsReady;
     this.onRemoteOfferApplied = onRemoteOfferApplied;
     this.onReconnecting = onReconnecting;
     this.onRejected = onRejected;
@@ -45,6 +51,7 @@ export class ViewerPeerSession {
     this.retryCount = 0;
     this.retryTimer = null;
     this.disconnectGraceTimer = null;
+    this.statsTimer = null;
     this.isDisposed = false;
   }
 
@@ -55,6 +62,9 @@ export class ViewerPeerSession {
     this._clearTimers();
     const mySeq = ++this.seq;
     await this._cleanupInternal();
+    if (mySeq !== this.seq || this.isDisposed) return;
+
+    const { rtcConfig } = await getRtcConfig();
     if (mySeq !== this.seq || this.isDisposed) return;
 
     const localViewerId = `${this.idPrefix}_${this.uid.slice(0, 6)}_${Math.random().toString(36).slice(2, 8)}`;
@@ -68,7 +78,7 @@ export class ViewerPeerSession {
     const camCandRef = ref(db, `${basePath}/cameraCandidates`);
     const viewCandRef = ref(db, `${basePath}/viewerCandidates`);
 
-    const pc = new RTCPeerConnection(RTC_CONFIG);
+    const pc = new RTCPeerConnection(rtcConfig);
     this.pc = pc;
     this.candidateQueue = [];
 
@@ -92,6 +102,7 @@ export class ViewerPeerSession {
         this._clearTimers();
         this.retryCount = 0;
         this.onIceStateChange(st);
+        this._readConnectionStats(pc, mySeq);
         return;
       }
 
@@ -116,7 +127,6 @@ export class ViewerPeerSession {
       return;
     }
 
-    // Kamera tarafından reddedilme (örn. oda dolu: room_full) dinleyicisi
     const unsubErr = onValue(errorRef, async (snap) => {
       const errObj = snap.val();
       if (mySeq !== this.seq || !errObj) return;
@@ -164,7 +174,22 @@ export class ViewerPeerSession {
     });
 
     this.unsubs.push(unsubErr, unsubOffer, unsubCamCand);
-    await set(viewerRef, { joinedAt: serverTimestamp() });
+    await set(viewerRef, {
+      joinedAt: serverTimestamp(),
+      profile: this.profile
+    });
+  }
+
+  _readConnectionStats(pc, expectedSeq) {
+    if (this.statsTimer) clearTimeout(this.statsTimer);
+    this.statsTimer = setTimeout(async () => {
+      this.statsTimer = null;
+      if (expectedSeq !== this.seq || this.isDisposed || this.pc !== pc) return;
+      const stats = await inspectActiveConnectionStats(pc);
+      if (stats && expectedSeq === this.seq && !this.isDisposed) {
+        this.onStatsReady(stats);
+      }
+    }, 900);
   }
 
   _scheduleDisconnectRecovery(expectedSeq) {
@@ -188,7 +213,7 @@ export class ViewerPeerSession {
     }
 
     this.retryCount++;
-    const delayMs = 2000 * Math.pow(2, this.retryCount - 1); // 2s, 4s, 8s
+    const delayMs = 2000 * Math.pow(2, this.retryCount - 1);
     this.onReconnecting(this.retryCount, LIMITS.VIEWER_MAX_AUTO_RETRIES);
 
     this.retryTimer = setTimeout(() => {
@@ -206,6 +231,10 @@ export class ViewerPeerSession {
     if (this.retryTimer) {
       clearTimeout(this.retryTimer);
       this.retryTimer = null;
+    }
+    if (this.statsTimer) {
+      clearTimeout(this.statsTimer);
+      this.statsTimer = null;
     }
   }
 

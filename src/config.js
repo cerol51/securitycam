@@ -11,13 +11,26 @@ export const FIREBASE_CONFIG = {
   measurementId: "G-8K16PEFD9R"
 };
 
-export const RTC_CONFIG = {
-  iceServers: [
-    { urls: "stun:stun.l.google.com:19302" },
-    { urls: "stun:stun1.l.google.com:19302" },
-    { urls: "stun:stun2.l.google.com:19302" }
-  ],
+export const DEFAULT_ICE_SERVERS = [
+  { urls: "stun:stun.l.google.com:19302" },
+  { urls: "stun:stun1.l.google.com:19302" },
+  { urls: "stun:stun2.l.google.com:19302" }
+];
+
+export const RTC_BASE_CONFIG = {
   iceCandidatePoolSize: 4
+};
+
+// İzleyici profiline göre kamera upload bitrate ve çözünürlük ölçekleme hedefleri
+export const VIDEO_PROFILES = {
+  single: {
+    "720p": { maxBitrate: 900_000, scaleResolutionDownBy: 1, maxFramerate: 12 },
+    "480p": { maxBitrate: 500_000, scaleResolutionDownBy: 1, maxFramerate: 12 }
+  },
+  grid: {
+    "720p": { maxBitrate: 250_000, scaleResolutionDownBy: 2, maxFramerate: 8 },
+    "480p": { maxBitrate: 200_000, scaleResolutionDownBy: 1.5, maxFramerate: 8 }
+  }
 };
 
 export const LIMITS = {
@@ -26,7 +39,8 @@ export const LIMITS = {
   SIREN_MAX_DURATION_MS: 60_000,
   VIDEO_BITRATE_BPS: 600_000,
   VIEWER_MAX_AUTO_RETRIES: 3,
-  VIEWER_DISCONNECT_GRACE_MS: 5_000
+  VIEWER_DISCONNECT_GRACE_MS: 5_000,
+  TURN_CACHE_TTL_MS: 10 * 60_000
 };
 
 export const MOTION_CONFIG = {
@@ -35,6 +49,13 @@ export const MOTION_CONFIG = {
   PIXEL_DIFF_LIMIT: 26,
   CHECK_INTERVAL_MS: 400,
   REQUIRED_CONSECUTIVE: 2
+};
+
+export const STORAGE_KEYS = {
+  PROXY_URL: "cam_proxy_base_url",
+  TURN_URLS: "cam_turn_urls",
+  TURN_USER: "cam_turn_username",
+  TURN_PASS: "cam_turn_credential"
 };
 
 export const DB_PATHS = {

@@ -252,6 +252,7 @@ export class SingleViewer {
       roomName: targetRoom,
       uid: appState.currentUser.uid,
       idPrefix: "v",
+      profile: "single",
       onStream: (stream) => {
         const remoteVideo = $("remoteVideo");
         if (remoteVideo.srcObject !== stream) {
@@ -264,7 +265,7 @@ export class SingleViewer {
       },
       onIceStateChange: (st) => {
         if (st === "connected" || st === "completed") {
-          this.setUIState("live", "Canlı", `${targetRoom} kamerasına doğrudan P2P bağlantı aktif.`);
+          this.setUIState("live", "Canlı", `${targetRoom} kamerasına bağlantı aktif.`);
           this.ptt.onConnectionLive();
         } else if (st === "disconnected") {
           this.ptt.onConnectionLost();
@@ -274,9 +275,21 @@ export class SingleViewer {
           this.setUIState(
             "err",
             "Bağlantı Hatası",
-            "Otomatik yeniden bağlanma başarısız oldu. Mobil veride CGNAT engeli olabilir; 'Yeniden Bağlan' deneyin veya TURN sunucusu ekleyin."
+            "Otomatik yeniden bağlanma başarısız oldu. Mobil veride CGNAT engeli olabilir; Kurulum ekranından TURN sunucusu ekleyip tekrar deneyin."
           );
         }
+      },
+      onStatsReady: (stats) => {
+        const rttTag = stats.rttMs !== null ? ` • ${stats.rttMs} ms` : "";
+        const modeDesc =
+          stats.mode === "TURN"
+            ? "TURN aktarmalı (CGNAT aşımı aktif)"
+            : "doğrudan P2P";
+        this.setUIState(
+          "live",
+          `Canlı (${stats.mode}${rttTag})`,
+          `${targetRoom} kamerasına ${modeDesc} bağlantı aktif.`
+        );
       },
       onReconnecting: (attempt, maxRetries) => {
         this.ptt.onConnectionLost();

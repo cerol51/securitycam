@@ -1,4 +1,4 @@
-const CACHE_NAME = "ev-kamera-pwa-v3";
+const CACHE_NAME = "ev-kamera-pwa-v4";
 const APP_SHELL = [
   "./",
   "./index.html",
@@ -11,6 +11,8 @@ const APP_SHELL = [
   "./src/config.js",
   "./src/state.js",
   "./src/services/firebase.js",
+  "./src/services/iceConfig.js",
+  "./src/services/networkSettingsUI.js",
   "./src/services/directory.js",
   "./src/services/telegram.js",
   "./src/services/pwa.js",
@@ -43,7 +45,7 @@ self.addEventListener("activate", (event) => {
 });
 
 self.addEventListener("fetch", (event) => {
-  // POST isteklerini (Telegram fotoğraf/video) ve dış servisleri (Firebase vb.) tamamen bypass et
+  // POST isteklerini (Telegram fotoğraf/video) ve dış servisleri (Firebase/Worker vb.) tamamen bypass et
   if (event.request.method !== "GET") return;
   const url = new URL(event.request.url);
   if (url.origin !== self.location.origin) return;

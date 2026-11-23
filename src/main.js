@@ -8,12 +8,14 @@ import {
   signOut
 } from "./services/firebase.js";
 import { initPwa } from "./services/pwa.js";
+import { initNetworkSettingsUI } from "./services/networkSettingsUI.js";
 import { RoomDirectory } from "./services/directory.js";
 import { CameraController } from "./camera/CameraController.js";
 import { ViewerController } from "./viewer/ViewerController.js";
 
-// 1. PWA kurulumu ve Service Worker kaydı
+// 1. PWA kurulumu, Service Worker kaydı ve Ağ/TURN ayarları UI
 initPwa();
+initNetworkSettingsUI();
 
 // 2. Modül örneklerini oluştur ve birbirine bağla
 let directory;

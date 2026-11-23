@@ -241,6 +241,7 @@ export class GridViewer {
       roomName: tile.roomName,
       uid: appState.currentUser.uid,
       idPrefix: "vg",
+      profile: "grid",
       onStream: (stream) => {
         if (tile.videoEl.srcObject !== stream) {
           tile.videoEl.srcObject = stream;
@@ -259,6 +260,10 @@ export class GridViewer {
           tile.dotEl.className = "dot err";
           tile.stateEl.textContent = "Bağlantı Hatası";
         }
+      },
+      onStatsReady: (stats) => {
+        if (!this.tiles.has(tile.roomName)) return;
+        tile.stateEl.textContent = stats.mode === "TURN" ? "Canlı (TURN)" : "Canlı (P2P)";
       },
       onReconnecting: (attempt, maxRetries) => {
         if (!this.tiles.has(tile.roomName)) return;

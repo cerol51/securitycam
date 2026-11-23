@@ -1,7 +1,7 @@
 // Kamera (Yayıncı) Modu — 1-to-N P2P, .info/connected otomatik kurtarma, oda çakışma koruması,
 // MAX_VIEWERS dolu bildirimi, flaş, kamera değişimi ve uzaktan komutlar
 
-import { RTC_CONFIG, LIMITS, DB_PATHS } from "../config.js";
+import { LIMITS, VIDEO_PROFILES, DB_PATHS } from "../config.js";
 import { $, appState, sanitizeRoom, showSection, addAlarmLog, captureStampedCanvas } from "../state.js";
 import {
   db,
@@ -16,6 +16,7 @@ import {
   onDisconnect,
   serverTimestamp
 } from "../services/firebase.js";
+import { getRtcConfig } from "../services/iceConfig.js";
 import { getTelegramCredentials, sendTelegramPhoto } from "../services/telegram.js";
 import { SirenEngine } from "./SirenEngine.js";
 import { WakeLockBlackout } from "./WakeLockBlackout.js";
@@ -334,7 +335,9 @@ export class CameraController {
           }).catch(() => {});
           return;
         }
-        this._createPeerForViewer(vId);
+        const viewerVal = snap.val() || {};
+        const profile = viewerVal.profile === "grid" ? "grid" : "single";
+        this._createPeerForViewer(vId, profile);
       });
 
       const unsubRemove = onChildRemoved(viewersRef, (snap) => {
@@ -356,12 +359,51 @@ export class CameraController {
     }
   }
 
-  async _createPeerForViewer(vId) {
+  async _applyVideoEncodingProfile(sender, profile = "single") {
+    if (!sender || typeof sender.getParameters !== "function") return;
+    const quality = $("qualitySelect").value === "480p" ? "480p" : "720p";
+    const preset = (VIDEO_PROFILES[profile] || VIDEO_PROFILES.single)[quality];
+    if (!preset) return;
+
+    try {
+      const params = sender.getParameters();
+      if (!params.encodings || params.encodings.length === 0) {
+        params.encodings = [{}];
+      }
+      params.encodings[0].maxBitrate = preset.maxBitrate;
+      params.encodings[0].scaleResolutionDownBy = preset.scaleResolutionDownBy;
+      params.encodings[0].maxFramerate = preset.maxFramerate;
+      await sender.setParameters(params);
+    } catch (_) {
+      // Eski/kısıtlı tarayıcılarda yalnızca maxBitrate ile güvenli düşüş
+      try {
+        const fallbackParams = sender.getParameters();
+        if (!fallbackParams.encodings || fallbackParams.encodings.length === 0) {
+          fallbackParams.encodings = [{}];
+        }
+        fallbackParams.encodings[0].maxBitrate = preset.maxBitrate;
+        await sender.setParameters(fallbackParams);
+      } catch (__) {}
+    }
+  }
+
+  async _createPeerForViewer(vId, profile = "single") {
     const uid = this.activeUid;
     const room = this.activeRoom;
+    const sessionId = this.activeSessionId;
     if (!uid || !room || !this.localStream) return;
 
-    const pc = new RTCPeerConnection(RTC_CONFIG);
+    const { rtcConfig } = await getRtcConfig();
+    if (
+      this.activeSessionId !== sessionId ||
+      this.sessionTakenOver ||
+      !this.localStream ||
+      this.peers.has(vId)
+    ) {
+      return;
+    }
+
+    const pc = new RTCPeerConnection(rtcConfig);
     const candidateQueue = [];
     const unsubs = [];
 
@@ -371,7 +413,7 @@ export class CameraController {
     remoteAudioEl.style.display = "none";
     document.body.appendChild(remoteAudioEl);
 
-    this.peers.set(vId, { pc, unsubs, candidateQueue, remoteAudioEl });
+    this.peers.set(vId, { pc, profile, unsubs, candidateQueue, remoteAudioEl });
     this._updateViewerCountUI();
 
     const basePath = DB_PATHS.roomViewer(uid, room, vId);
@@ -380,9 +422,16 @@ export class CameraController {
     const camCandRef = ref(db, `${basePath}/cameraCandidates`);
     const viewCandRef = ref(db, `${basePath}/viewerCandidates`);
 
-    this.localStream.getTracks().forEach((track) => pc.addTrack(track, this.localStream));
+    let videoSender = null;
+    this.localStream.getTracks().forEach((track) => {
+      const sender = pc.addTrack(track, this.localStream);
+      if (track.kind === "video") videoSender = sender;
+    });
     if (this.localStream.getAudioTracks().length === 0) {
       pc.addTransceiver("audio", { direction: "recvonly" });
+    }
+    if (videoSender) {
+      await this._applyVideoEncodingProfile(videoSender, profile);
     }
 
     pc.ontrack = (event) => {
@@ -532,12 +581,13 @@ export class CameraController {
     this.localStream = new MediaStream([newVideoTrack, ...oldAudioTracks]);
     $("localVideo").srcObject = this.localStream;
 
-    for (const { pc } of this.peers.values()) {
+    for (const { pc, profile } of this.peers.values()) {
       const videoTransceiver = pc
         .getTransceivers()
         .find((tr) => tr.sender?.track?.kind === "video" || tr.receiver?.track?.kind === "video");
       if (videoTransceiver?.sender) {
         await videoTransceiver.sender.replaceTrack(newVideoTrack);
+        await this._applyVideoEncodingProfile(videoTransceiver.sender, profile);
       }
     }
   }

@@ -1,0 +1,6 @@
+name = "securitycam-proxy"
+main = "cloudflare-worker.js"
+compatibility_date = "2026-01-01"
+
+[vars]
+ALLOWED_ORIGIN = "https://cerol51.github.io"
