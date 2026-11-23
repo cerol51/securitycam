@@ -1,0 +1,38 @@
+{
+  "rules": {
+    ".read": false,
+    ".write": false,
+    "users": {
+      "$uid": {
+        ".read": "auth != null && auth.uid === $uid",
+        ".write": "auth != null && auth.uid === $uid",
+        "directory": {
+          "$room": {
+            ".validate": "$room.matches(/^[a-z0-9][a-z0-9_-]{0,39}$/) && newData.hasChildren(['room', 'online']) && newData.child('room').isString() && newData.child('room').val() === $room && newData.child('online').isBoolean()"
+          }
+        },
+        "rooms": {
+          "$room": {
+            ".validate": "$room.matches(/^[a-z0-9][a-z0-9_-]{0,39}$/)",
+            "meta": {
+              ".validate": "newData.hasChildren(['online', 'sessionId']) && newData.child('online').isBoolean() && newData.child('sessionId').isString() && newData.child('sessionId').val().length <= 64"
+            },
+            "commands": {
+              "$cmdId": {
+                ".validate": "newData.hasChildren(['type']) && (newData.child('type').val() === 'set_motion' || newData.child('type').val() === 'set_torch' || newData.child('type').val() === 'set_siren' || newData.child('type').val() === 'take_snapshot')"
+              }
+            },
+            "snapshot": {
+              ".validate": "newData.hasChildren(['dataUrl', 'capturedAt']) && newData.child('dataUrl').isString() && newData.child('dataUrl').val().length <= 450000"
+            },
+            "viewers": {
+              "$viewerId": {
+                ".validate": "$viewerId.matches(/^(v|vg)_[a-zA-Z0-9_-]{4,40}$/)"
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

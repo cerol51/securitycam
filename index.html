@@ -1,0 +1,338 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="theme-color" content="#0b0f19" />
+  <link rel="manifest" href="./manifest.json" />
+  <link rel="icon" type="image/png" sizes="192x192" href="./icon-192.png" />
+  <link rel="apple-touch-icon" sizes="180x180" href="./apple-touch-icon.png" />
+  <meta name="apple-mobile-web-app-title" content="Ev Kamerası" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black" />
+  <title>Ev Güvenlik Kamerası (2×2 Çoklu İzleme • WebRTC)</title>
+  <link rel="stylesheet" href="./styles/main.css" />
+</head>
+<body>
+  <div id="mainContainer" class="container">
+    <!-- Üst Başlık -->
+    <div class="card between">
+      <div>
+        <h1>Ev Güvenlik Kamerası</h1>
+        <p class="sub">WebRTC 1-to-N • 2×2 Çoklu İzleme • Telegram Alarm • Siren & Bas-Konuş</p>
+      </div>
+      <div class="row">
+        <button id="installPwaBtn" class="compact hidden">Uygulamayı Yükle</button>
+        <div id="userHeader" class="row hidden">
+          <span id="userEmailBadge" class="badge"></span>
+          <button id="logoutBtn" class="secondary compact">Çıkış</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- iOS Ana Ekrana Ekleme Rehberi -->
+    <div id="iosInstallHint" class="ios-hint between hidden">
+      <div>
+        <strong>iPhone / iPad Ana Ekrana Ekleme:</strong> Safari alt menüsündeki <strong>Paylaş</strong> simgesine dokunup <strong>"Ana Ekrana Ekle"</strong> seçeneğini onayla.
+      </div>
+      <button id="closeIosHintBtn" class="secondary compact">Tamam</button>
+    </div>
+
+    <!-- 1. GİRİŞ EKRANI -->
+    <div id="loginView" class="card">
+      <h2>Yetkili Girişi</h2>
+      <form id="loginForm">
+        <div class="field">
+          <label for="emailInput">E-posta</label>
+          <input id="emailInput" type="email" required placeholder="ornek@alanadi.com" autocomplete="username" />
+        </div>
+        <div class="field">
+          <label for="passwordInput">Şifre</label>
+          <input id="passwordInput" type="password" required placeholder="••••••••" autocomplete="current-password" />
+        </div>
+        <button id="loginBtn" type="submit" class="full">Giriş Yap</button>
+        <div id="loginError" class="error-msg hidden"></div>
+      </form>
+    </div>
+
+    <!-- 2. MOD SEÇİM EKRANI -->
+    <div id="setupView" class="card hidden">
+      <!-- Aktif Kameralar Hızlı Erişim Listesi -->
+      <div class="rooms-panel">
+        <div class="between">
+          <strong style="font-size: 0.9rem;">Yayındaki Aktif Odalar (İzlemek için dokun)</strong>
+          <div class="row">
+            <span id="setupActiveCount" class="badge">0 Aktif</span>
+            <button id="openGridFromSetupBtn" class="compact">2×2 Çoklu İzle</button>
+          </div>
+        </div>
+        <div id="setupActiveRooms" class="room-pills"></div>
+        <div id="setupEmptyRooms" class="empty-rooms">Şu an yayında kamera görünmüyor. Evdeki bir cihazdan Kamera Modu başlattığında burada otomatik listelenir.</div>
+      </div>
+
+      <h2>Yeni Oda Başlat veya Manuel Bağlan</h2>
+      <div class="field">
+        <label for="roomInput">Oda Adı (Her kamera cihazı için farklı ad gir: salon, giris, cocuk-odasi)</label>
+        <input id="roomInput" type="text" value="salon" placeholder="salon, giris, mutfak, cocuk-odasi" />
+      </div>
+
+      <div class="mode-grid">
+        <div class="mode-card">
+          <div>
+            <h2>Kamera Modu (Yayıncı)</h2>
+            <p class="sub">Evde sabit duracak Android telefon/tablet için. Canlı yayın, hareket alarmı, siren ve uzaktan ses çıkışı.</p>
+          </div>
+          <div>
+            <div class="field">
+              <label for="qualitySelect">Yayın Kalitesi (Isınma Kontrolü)</label>
+              <select id="qualitySelect">
+                <option value="720p" selected>720p (1280×720) – 12 FPS (Önerilen)</option>
+                <option value="480p">480p (854×480) – 12 FPS (Düşük Isınma / Veri)</option>
+              </select>
+            </div>
+            <label class="checkbox-row" style="margin-bottom: 12px;">
+              <input id="audioCheck" type="checkbox" checked />
+              Mikrofon sesini yayına ve kliplere ekle
+            </label>
+            <button id="startCameraBtn" class="full success">Kamera Yayınını Başlat</button>
+          </div>
+        </div>
+
+        <div class="mode-card">
+          <div>
+            <h2>İzleyici Modu (Monitör)</h2>
+            <p class="sub">Tek odayı büyük ekran kontrol paneliyle aç veya tüm aktif kameraları 2×2 çoklu ekranda aynı anda izle.</p>
+          </div>
+          <div style="display: flex; flex-direction: column; gap: 8px;">
+            <button id="startViewerBtn" class="full">Seçili Odaya Bağlan</button>
+            <button id="startGridViewerBtn" class="full secondary">Tüm Aktif Odaları 2×2 İzle</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 3. KAMERA (YAYINCI) EKRANI -->
+    <div id="cameraView" class="card hidden">
+      <div class="between">
+        <div class="row">
+          <span class="badge"><span id="camDot" class="dot live"></span> <span id="camRoomLabel"></span></span>
+          <span class="badge">İzleyici: <strong id="viewerCount">0</strong> / 4</span>
+          <span id="wakeLockBadge" class="badge">Ekran Kilidi: Bekleniyor</span>
+        </div>
+        <button id="stopCameraBtn" class="danger">Yayını Durdur</button>
+      </div>
+
+      <div class="video-wrap">
+        <video id="localVideo" autoplay playsinline muted></video>
+        <div class="video-badges">
+          <div id="motionAlertBadge" class="motion-badge-overlay hidden">HAREKET ALGILANDI</div>
+          <div id="sirenAlertBadge" class="siren-badge-overlay hidden">SİREN ÇALIYOR</div>
+          <div id="recAlertBadge" class="rec-badge-overlay hidden">
+            <span class="rec-dot"></span>
+            <span id="recTimerText">KAYIT: 10 sn</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="row">
+        <button id="blackoutBtn" class="secondary">Ekranı Karart (7/24 Mod)</button>
+        <button id="switchCamBtn" class="secondary">Ön / Arka Kamera</button>
+        <button id="torchBtn" class="secondary hidden">Flaş: Kapalı</button>
+        <button id="sirenLocalBtn" class="secondary">Siren Testi</button>
+      </div>
+      <div id="camStatus" class="status-bar">Kamera hazır. İzleyiciler bekleniyor...</div>
+
+      <!-- HAREKET ALGILAMA & TELEGRAM ALARM PANELİ -->
+      <div class="subcard">
+        <div class="between" style="margin-bottom: 10px;">
+          <h3 style="margin-bottom: 0;">Hareket Algılama & Telegram Alarmı</h3>
+          <span id="motionStatusBadge" class="badge"><span id="motionDot" class="dot"></span> <span id="motionStateText">Pasif</span></span>
+        </div>
+
+        <div class="grid-2">
+          <div class="field">
+            <label for="tgTokenInput">Telegram Bot Token (Yalnızca bu cihaza kaydedilir)</label>
+            <input id="tgTokenInput" type="password" placeholder="123456789:ABCdefGHIjklMNO..." autocomplete="off" />
+          </div>
+          <div class="field">
+            <label for="tgChatIdInput">Telegram Chat ID</label>
+            <input id="tgChatIdInput" type="text" placeholder="Örn: 987654321" autocomplete="off" />
+          </div>
+        </div>
+
+        <div class="grid-2">
+          <div class="field">
+            <label for="alarmModeSelect">Telegram Bildirim Modu</label>
+            <select id="alarmModeSelect">
+              <option value="hybrid" selected>Hibrit (Anlık Fotoğraf + Video Klip)</option>
+              <option value="photo">Sadece Anlık Fotoğraf</option>
+              <option value="video">Sadece Video Klip</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="clipDurationSelect">Video Klip Süresi</label>
+            <select id="clipDurationSelect">
+              <option value="5">5 saniye (~0,5 MB)</option>
+              <option value="10" selected>10 saniye (~1,0 MB • Önerilen)</option>
+              <option value="15">15 saniye (~1,5 MB)</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="grid-2">
+          <div class="field">
+            <label for="motionThresholdRange">
+              Hareket Eşiği: <strong id="thresholdValLabel">%4</strong>
+              <span style="font-size: 0.76rem;">(Düşük = Daha Hassas)</span>
+            </label>
+            <input id="motionThresholdRange" type="range" min="1" max="20" step="0.5" value="4" />
+          </div>
+          <div class="field">
+            <label for="cooldownSelect">Alarmlar Arası Bekleme (Spam Önleme)</label>
+            <select id="cooldownSelect">
+              <option value="30" selected>30 saniye (Önerilen)</option>
+              <option value="60">1 dakika</option>
+              <option value="120">2 dakika</option>
+              <option value="300">5 dakika</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- Canlı Hareket Göstergesi -->
+        <div style="margin-bottom: 12px;">
+          <div class="between" style="font-size: 0.8rem; color: var(--muted);">
+            <span>Anlık Kare Değişimi (Kalibrasyon)</span>
+            <span id="liveMotionPct">%0.0</span>
+          </div>
+          <div class="meter-track">
+            <div id="motionMeterFill" class="meter-fill"></div>
+            <div id="motionMeterThreshold" class="meter-threshold" style="left: 20%;"></div>
+          </div>
+        </div>
+
+        <div class="row">
+          <button id="toggleMotionBtn" class="success">Hareket Algılamayı Başlat</button>
+          <button id="testPhotoBtn" class="secondary">Test Fotoğrafı</button>
+          <button id="testVideoBtn" class="secondary">Test Videosu (5 sn)</button>
+        </div>
+
+        <div id="motionStatusMsg" class="status-bar">Bot bilgilerini girip "Test Fotoğrafı" veya "Test Videosu" ile bağlantıyı doğrula.</div>
+        <ul id="alarmLogList" class="log-list hidden"></ul>
+      </div>
+    </div>
+
+    <!-- 4. İZLEYİCİ EKRANI (TEKLİ + 2×2 ÇOKLU GÖRÜNÜM) -->
+    <div id="viewerView" class="card hidden">
+      <div class="between" style="margin-bottom: 12px;">
+        <div class="row">
+          <div class="mode-switch" role="tablist" aria-label="İzleme Görünümü">
+            <button id="modeSingleBtn" type="button" class="active">Tekli Görünüm</button>
+            <button id="modeGridBtn" type="button">2×2 Çoklu Ekran</button>
+          </div>
+          <span id="singleStatusBadges" class="row">
+            <span class="badge"><span id="viewDot" class="dot warn"></span> <span id="viewStateText">Bağlanıyor...</span></span>
+            <span class="badge" id="viewRoomLabel"></span>
+          </span>
+        </div>
+        <button id="stopViewerBtn" class="danger compact">Ayrıl</button>
+      </div>
+
+      <!-- HIZLI ODA GEÇİŞ ÇUBUĞU -->
+      <div class="rooms-panel">
+        <div class="between">
+          <span id="roomBarTitle" style="font-size: 0.83rem; font-weight: 600; color: var(--muted);">Aktif Odalar (Büyütmek veya geçiş yapmak için dokun)</span>
+          <span id="viewerActiveCount" class="badge">0 Kamera</span>
+        </div>
+        <div id="viewerRoomBar" class="room-pills"></div>
+      </div>
+
+      <!-- 4A. 2×2 ÇOKLU İZLEME ALANI -->
+      <div id="gridViewerArea" class="hidden">
+        <div class="between">
+          <span id="gridStatusText" class="status-bar" style="margin-top: 0;">Aktif kameralar 2×2 çoklu ekranda bağlanıyor...</span>
+          <div class="row">
+            <button id="gridDensityBtn" class="secondary compact">Mobil: 2 Sütun</button>
+            <button id="gridReconnectAllBtn" class="secondary compact">Tümünü Yenile</button>
+          </div>
+        </div>
+        <div id="gridOverflowNote" class="status-bar hidden" style="color: var(--warn);"></div>
+        <div id="gridEmptyState" class="grid-empty-card hidden">
+          Şu an yayında aktif kamera bulunmuyor.<br/>Evdeki cihazlar yayına geçtiğinde bu ekranda otomatik olarak 2×2 düzeninde belirecek.
+        </div>
+        <div id="cameraGridContainer" class="grid-2x2"></div>
+      </div>
+
+      <!-- 4B. TEKLİ BÜYÜK EKRAN VE KONTROL ALANI -->
+      <div id="singleViewerArea">
+        <div class="video-wrap">
+          <video id="remoteVideo" autoplay playsinline muted></video>
+        </div>
+
+        <div class="row">
+          <button id="muteToggleBtn" class="secondary">Sesi Aç (Sessizde)</button>
+          <button id="fullscreenBtn" class="secondary">Tam Ekran</button>
+          <button id="reconnectBtn" class="secondary">Yeniden Bağlan</button>
+        </div>
+        <div id="viewStatus" class="status-bar">Kamera durumu kontrol ediliyor...</div>
+
+        <!-- UZAKTAN KAMERA KONTROLÜ & BAS-KONUŞ PANELİ -->
+        <div class="subcard">
+          <div class="between">
+            <h3 style="margin-bottom: 0;">Uzaktan Kontrol & İki Yönlü Ses</h3>
+            <div class="row">
+              <span class="badge"><span id="remoteMotionDot" class="dot"></span> <span id="remoteMotionBadgeText">Alarm: --</span></span>
+              <span class="badge"><span id="remoteSirenDot" class="dot"></span> <span id="remoteSirenBadgeText">Siren: --</span></span>
+              <span class="badge" id="remoteTorchBadge">Flaş: --</span>
+            </div>
+          </div>
+
+          <!-- Bas-Konuş (PTT) -->
+          <div class="ptt-wrap">
+            <button id="pttBtn" disabled>Mikrofonu Etkinleştir (Bas-Konuş)</button>
+            <div id="pttStatus" class="status-bar" style="margin-top: 6px;">Canlı bağlantı kurulduğunda kameraya seslenebilirsin.</div>
+          </div>
+
+          <div class="ctrl-grid">
+            <button id="remoteMotionBtn" class="success" disabled>Hareket Alarmını Aç</button>
+            <button id="remoteSirenBtn" class="secondary" disabled>Alarm Sirenini Çal</button>
+            <button id="remoteTorchBtn" class="secondary" disabled>Flaşı Aç</button>
+            <button id="remoteSnapshotBtn" class="primary" disabled>Anlık Fotoğraf İste</button>
+          </div>
+
+          <label class="checkbox-row">
+            <input id="remoteSnapTelegramCheck" type="checkbox" checked />
+            Anlık fotoğrafı Telegram'a da gönder (kamerada bot tanımlıysa)
+          </label>
+
+          <div id="remoteCtrlStatus" class="status-bar">Kamera çevrimiçi olduğunda uzaktan komutlar aktifleşir.</div>
+
+          <!-- Kameradan Gelen Son Anlık Fotoğraf -->
+          <div id="remoteSnapshotBox" class="snapshot-box hidden">
+            <div class="between">
+              <span id="remoteSnapshotMeta" class="badge">Son Fotoğraf</span>
+              <div class="row">
+                <button id="downloadSnapshotBtn" class="secondary compact">İndir (JPG)</button>
+                <button id="hideSnapshotBtn" class="secondary compact">Gizle</button>
+              </div>
+            </div>
+            <img id="remoteSnapshotImg" class="snapshot-img" alt="Kameradan gelen anlık fotoğraf" />
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Siyah Karartma Katmanı -->
+  <div id="blackoutOverlay" class="hidden">
+    <div id="blackoutClock">--:--</div>
+    <div id="blackoutInfo">
+      <span id="blackoutRoomName">Oda: --</span> • İzleyici: <span id="blackoutViewers">0</span><br/>
+      Hareket Alarmı: <span id="blackoutMotionState">Pasif</span><br/>
+      <span style="opacity: 0.7;">Ekranı açmak için çift dokunun</span>
+    </div>
+  </div>
+
+  <script type="module" src="./src/main.js"></script>
+</body>
+</html>
