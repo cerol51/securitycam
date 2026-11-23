@@ -156,12 +156,14 @@
           <span class="badge"><span id="camDot" class="dot live"></span> <span id="camRoomLabel"></span></span>
           <span class="badge">İzleyici: <strong id="viewerCount">0</strong> / 4</span>
           <span id="wakeLockBadge" class="badge">Ekran Kilidi: Bekleniyor</span>
+          <span id="batteryBadge" class="badge hidden"></span>
         </div>
         <button id="stopCameraBtn" class="danger">Yayını Durdur</button>
       </div>
 
       <div class="video-wrap">
         <video id="localVideo" autoplay playsinline muted></video>
+        <div id="roiOverlay" class="roi-overlay hidden" aria-label="Hareket bölgesi maskeleme ızgarası"></div>
         <div class="video-badges">
           <div id="motionAlertBadge" class="motion-badge-overlay hidden">HAREKET ALGILANDI</div>
           <div id="sirenAlertBadge" class="siren-badge-overlay hidden">SİREN ÇALIYOR</div>
@@ -237,6 +239,19 @@
             </select>
           </div>
         </div>
+
+        <!-- Işık Filtresi & Bölge Maskeleme (ROI) -->
+        <div class="between" style="margin-bottom: 12px;">
+          <label class="checkbox-row">
+            <input id="lightCompCheck" type="checkbox" checked />
+            Işık / pozlama değişimi filtresi (yanlış alarm azaltıcı)
+          </label>
+          <div class="row">
+            <button id="toggleRoiEditBtn" type="button" class="secondary compact">Bölge Maskesi (ROI)</button>
+            <button id="clearRoiBtn" type="button" class="secondary compact" disabled>Maskeyi Temizle</button>
+          </div>
+        </div>
+        <div id="roiSummaryText" class="status-bar" style="margin-top: -6px; margin-bottom: 10px;">Tüm ekran izleniyor (0 bölge maskeli)</div>
 
         <!-- Canlı Hareket Göstergesi -->
         <div style="margin-bottom: 12px;">
@@ -323,6 +338,8 @@
               <span class="badge"><span id="remoteMotionDot" class="dot"></span> <span id="remoteMotionBadgeText">Alarm: --</span></span>
               <span class="badge"><span id="remoteSirenDot" class="dot"></span> <span id="remoteSirenBadgeText">Siren: --</span></span>
               <span class="badge" id="remoteTorchBadge">Flaş: --</span>
+              <span class="badge hidden" id="remoteBatteryBadge"></span>
+              <span class="badge hidden" id="remoteChannelBadge"></span>
             </div>
           </div>
 

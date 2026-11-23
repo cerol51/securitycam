@@ -160,6 +160,9 @@ export default {
       if (url.pathname === "/telegram/sendVideo" && request.method === "POST") {
         return await handleTelegramProxy(request, env, "sendVideo", headers);
       }
+      if (url.pathname === "/telegram/sendMessage" && request.method === "POST") {
+        return await handleTelegramProxy(request, env, "sendMessage", headers);
+      }
 
       return jsonResponse({ error: "Bilinmeyen endpoint." }, 404, headers);
     } catch (err) {

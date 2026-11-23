@@ -1,8 +1,8 @@
 // Tekli ve 2×2 Grid izleyicileri için ortak WebRTC P2P oturum yöneticisi
-// Özellikler: Dinamik TURN/STUN, profil bildirimi (single/grid), yarış durumu koruması,
-// oda dolu algılama, exponential backoff otomatik yeniden bağlanma ve P2P/TURN istatistik okuması
+// Özellikler: Dinamik TURN/STUN, profil bildirimi (single/grid), RTCDataChannel (komut & P2P snapshot),
+// yarış durumu koruması, oda dolu algılama, exponential backoff otomatik yeniden bağlanma ve P2P/TURN istatistikleri
 
-import { LIMITS, DB_PATHS } from "../config.js";
+import { LIMITS, DATACHANNEL_CONFIG, DB_PATHS } from "../config.js";
 import {
   db,
   ref,
@@ -25,6 +25,8 @@ export class ViewerPeerSession {
     onStream = () => {},
     onIceStateChange = () => {},
     onStatsReady = () => {},
+    onDataChannelState = () => {},
+    onDataMessage = () => {},
     onRemoteOfferApplied = null,
     onReconnecting = () => {},
     onRejected = () => {},
@@ -37,12 +39,15 @@ export class ViewerPeerSession {
     this.onStream = onStream;
     this.onIceStateChange = onIceStateChange;
     this.onStatsReady = onStatsReady;
+    this.onDataChannelState = onDataChannelState;
+    this.onDataMessage = onDataMessage;
     this.onRemoteOfferApplied = onRemoteOfferApplied;
     this.onReconnecting = onReconnecting;
     this.onRejected = onRejected;
     this.onError = onError;
 
     this.pc = null;
+    this.dataChannel = null;
     this.viewerId = null;
     this.unsubs = [];
     this.candidateQueue = [];
@@ -53,6 +58,20 @@ export class ViewerPeerSession {
     this.disconnectGraceTimer = null;
     this.statsTimer = null;
     this.isDisposed = false;
+  }
+
+  get isDataChannelOpen() {
+    return Boolean(this.dataChannel && this.dataChannel.readyState === "open");
+  }
+
+  sendDataMessage(payload) {
+    if (!this.isDataChannelOpen) return false;
+    try {
+      this.dataChannel.send(JSON.stringify(payload));
+      return true;
+    } catch (_) {
+      return false;
+    }
   }
 
   async connect({ isRetry = false } = {}) {
@@ -81,6 +100,28 @@ export class ViewerPeerSession {
     const pc = new RTCPeerConnection(rtcConfig);
     this.pc = pc;
     this.candidateQueue = [];
+
+    pc.ondatachannel = (event) => {
+      if (mySeq !== this.seq || this.isDisposed) return;
+      const ch = event.channel;
+      if (!ch || ch.label !== DATACHANNEL_CONFIG.LABEL) return;
+      this.dataChannel = ch;
+
+      ch.onopen = () => {
+        if (mySeq === this.seq && !this.isDisposed) this.onDataChannelState(true);
+      };
+      ch.onclose = () => {
+        if (this.dataChannel === ch) this.dataChannel = null;
+        if (mySeq === this.seq && !this.isDisposed) this.onDataChannelState(false);
+      };
+      ch.onmessage = (ev) => {
+        if (mySeq !== this.seq || this.isDisposed || typeof ev.data !== "string") return;
+        try {
+          const parsed = JSON.parse(ev.data);
+          this.onDataMessage(parsed);
+        } catch (_) {}
+      };
+    };
 
     pc.ontrack = (event) => {
       if (mySeq !== this.seq) return;
@@ -255,6 +296,12 @@ export class ViewerPeerSession {
     this.unsubs.forEach((fn) => fn());
     this.unsubs = [];
     this.candidateQueue = [];
+
+    if (this.dataChannel) {
+      try { this.dataChannel.close(); } catch (_) {}
+      this.dataChannel = null;
+      this.onDataChannelState(false);
+    }
 
     if (this.pc) {
       try { this.pc.close(); } catch (_) {}

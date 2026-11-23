@@ -46,16 +46,31 @@ export const LIMITS = {
 export const MOTION_CONFIG = {
   WIDTH: 64,
   HEIGHT: 36,
+  ROI_COLS: 8,
+  ROI_ROWS: 6,
   PIXEL_DIFF_LIMIT: 26,
   CHECK_INTERVAL_MS: 400,
   REQUIRED_CONSECUTIVE: 2
+};
+
+export const TELEMETRY_CONFIG = {
+  LOW_BATTERY_THRESHOLD: 15,
+  REARM_BATTERY_THRESHOLD: 22,
+  SYNC_INTERVAL_MS: 60_000
+};
+
+export const DATACHANNEL_CONFIG = {
+  LABEL: "control",
+  CHUNK_SIZE: 16_000
 };
 
 export const STORAGE_KEYS = {
   PROXY_URL: "cam_proxy_base_url",
   TURN_URLS: "cam_turn_urls",
   TURN_USER: "cam_turn_username",
-  TURN_PASS: "cam_turn_credential"
+  TURN_PASS: "cam_turn_credential",
+  ROI_MASK: "cam_motion_roi_mask",
+  LIGHT_COMP: "cam_motion_light_comp"
 };
 
 export const DB_PATHS = {

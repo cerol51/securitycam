@@ -221,6 +221,13 @@ export class GridViewer {
       qTag.textContent = meta.quality;
       tile.badgesEl.appendChild(qTag);
     }
+    if (typeof meta.batteryPct === "number") {
+      const bTag = document.createElement("span");
+      const low = !meta.charging && meta.batteryPct <= 20;
+      bTag.className = "pill-meta" + (low ? " siren" : meta.charging ? " alarm" : "");
+      bTag.textContent = `${meta.charging ? "⚡" : "🔋"}%${meta.batteryPct}`;
+      tile.badgesEl.appendChild(bTag);
+    }
   }
 
   async _connectTile(tile) {

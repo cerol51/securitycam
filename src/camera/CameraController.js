@@ -1,7 +1,7 @@
 // Kamera (Yayıncı) Modu — 1-to-N P2P, .info/connected otomatik kurtarma, oda çakışma koruması,
 // MAX_VIEWERS dolu bildirimi, flaş, kamera değişimi ve uzaktan komutlar
 
-import { LIMITS, VIDEO_PROFILES, DB_PATHS } from "../config.js";
+import { LIMITS, VIDEO_PROFILES, DATACHANNEL_CONFIG, DB_PATHS } from "../config.js";
 import { $, appState, sanitizeRoom, showSection, addAlarmLog, captureStampedCanvas } from "../state.js";
 import {
   db,
@@ -22,6 +22,7 @@ import { SirenEngine } from "./SirenEngine.js";
 import { WakeLockBlackout } from "./WakeLockBlackout.js";
 import { ClipRecorder } from "./ClipRecorder.js";
 import { MotionDetector } from "./MotionDetector.js";
+import { DeviceTelemetry } from "./DeviceTelemetry.js";
 
 export class CameraController {
   constructor() {
@@ -55,6 +56,9 @@ export class CameraController {
       getStream: () => this.localStream,
       clipRecorder: this.clipRecorder,
       onMetaSync: (extra) => this.syncMeta(extra)
+    });
+    this.telemetry = new DeviceTelemetry({
+      onTelemetryChange: () => this.syncMeta()
     });
 
     this._bindEvents();
@@ -110,6 +114,7 @@ export class CameraController {
     ) {
       return;
     }
+    const { batteryPct, charging } = this.telemetry.getSnapshot();
     update(ref(db, DB_PATHS.roomDir(this.activeUid, this.activeRoom)), {
       room: this.activeRoom,
       online: true,
@@ -117,6 +122,8 @@ export class CameraController {
       motionEnabled: this.motion.enabled,
       sirenOn: this.siren.isActive,
       viewerCount: this.peers.size,
+      batteryPct,
+      charging,
       updatedAt: serverTimestamp()
     }).catch(() => {});
   }
@@ -131,6 +138,7 @@ export class CameraController {
     ) {
       return;
     }
+    const { batteryPct, charging } = this.telemetry.getSnapshot();
     update(ref(db, DB_PATHS.roomMeta(this.activeUid, this.activeRoom)), {
       motionEnabled: this.motion.enabled,
       torchOn: this.torchOn,
@@ -138,6 +146,8 @@ export class CameraController {
       sirenOn: this.siren.isActive,
       isRecording: this.clipRecorder.isRecording,
       alarmMode: $("alarmModeSelect").value,
+      batteryPct,
+      charging,
       updatedAt: serverTimestamp(),
       ...extra
     }).catch(() => {});
@@ -176,6 +186,7 @@ export class CameraController {
 
     if (sessionId !== this.activeSessionId || this.sessionTakenOver) return;
 
+    const { batteryPct, charging } = this.telemetry.getSnapshot();
     await Promise.all([
       set(metaRef, {
         online: true,
@@ -187,6 +198,8 @@ export class CameraController {
         sirenOn: this.siren.isActive,
         isRecording: this.clipRecorder.isRecording,
         alarmMode: $("alarmModeSelect").value,
+        batteryPct,
+        charging,
         lastEvent: isReconnect
           ? "Ağ kesintisi sonrası kamera otomatik yeniden bağlandı."
           : "Kamera yayına başladı.",
@@ -200,6 +213,8 @@ export class CameraController {
         motionEnabled: this.motion.enabled,
         sirenOn: this.siren.isActive,
         viewerCount: this.peers.size,
+        batteryPct,
+        charging,
         updatedAt: serverTimestamp()
       })
     ]);
@@ -259,6 +274,7 @@ export class CameraController {
       $("localVideo").srcObject = this.localStream;
       this._updateTorchAvailability();
       await this.wakeLockBlackout.requestWakeLock();
+      await this.telemetry.start();
 
       const viewersRef = ref(db, DB_PATHS.roomViewers(uid, room));
       const commandsRef = ref(db, DB_PATHS.roomCommands(uid, room));
@@ -413,7 +429,21 @@ export class CameraController {
     remoteAudioEl.style.display = "none";
     document.body.appendChild(remoteAudioEl);
 
-    this.peers.set(vId, { pc, profile, unsubs, candidateQueue, remoteAudioEl });
+    let dataChannel = null;
+    if (profile === "single") {
+      dataChannel = pc.createDataChannel(DATACHANNEL_CONFIG.LABEL, { ordered: true });
+      dataChannel.onmessage = async (ev) => {
+        if (typeof ev.data !== "string") return;
+        try {
+          const cmd = JSON.parse(ev.data);
+          if (cmd && cmd.type) {
+            await this._handleRemoteCommand(cmd, { dataChannel });
+          }
+        } catch (_) {}
+      };
+    }
+
+    this.peers.set(vId, { pc, profile, dataChannel, unsubs, candidateQueue, remoteAudioEl });
     this._updateViewerCountUI();
 
     const basePath = DB_PATHS.roomViewer(uid, room, vId);
@@ -491,6 +521,9 @@ export class CameraController {
     const entry = this.peers.get(vId);
     if (!entry) return;
     entry.unsubs.forEach((fn) => fn());
+    if (entry.dataChannel) {
+      try { entry.dataChannel.close(); } catch (_) {}
+    }
     try { entry.pc.close(); } catch (_) {}
     if (entry.remoteAudioEl) {
       entry.remoteAudioEl.srcObject = null;
@@ -592,7 +625,34 @@ export class CameraController {
     }
   }
 
-  async _handleRemoteSnapshotRequest(sendToTelegram = true) {
+  _sendSnapshotOverDataChannel(dataChannel, { dataUrl, capturedAt, room, sentToTelegram }) {
+    if (!dataChannel || dataChannel.readyState !== "open") return false;
+    try {
+      const chunkSize = DATACHANNEL_CONFIG.CHUNK_SIZE;
+      const total = Math.ceil(dataUrl.length / chunkSize);
+      const id = "sn_" + capturedAt + "_" + Math.random().toString(36).slice(2, 6);
+
+      for (let index = 0; index < total; index++) {
+        const slice = dataUrl.slice(index * chunkSize, (index + 1) * chunkSize);
+        const packet = {
+          type: "snap_chunk",
+          id,
+          index,
+          total,
+          data: slice
+        };
+        if (index === 0) {
+          packet.meta = { capturedAt, room, sentToTelegram };
+        }
+        dataChannel.send(JSON.stringify(packet));
+      }
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  async _handleRemoteSnapshotRequest(sendToTelegram = true, { dataChannel = null } = {}) {
     const uid = this.activeUid;
     const room = this.activeRoom;
     if (!uid || !room) return;
@@ -634,16 +694,28 @@ export class CameraController {
         }
       }
 
-      await set(ref(db, DB_PATHS.roomSnapshot(uid, room)), {
+      const sentToTelegram = tgNote.includes("iletildi");
+      const sentViaP2p = this._sendSnapshotOverDataChannel(dataChannel, {
         dataUrl,
         capturedAt,
         room,
-        sentToTelegram: tgNote.includes("iletildi")
+        sentToTelegram
       });
 
-      addAlarmLog(`Uzaktan anlık fotoğraf çekildi${tgNote}`);
+      // DataChannel açık değilse (veya RTDB komutundan geldiyse) RTDB yedeğine yaz
+      if (!sentViaP2p) {
+        await set(ref(db, DB_PATHS.roomSnapshot(uid, room)), {
+          dataUrl,
+          capturedAt,
+          room,
+          sentToTelegram
+        });
+      }
+
+      const viaTag = sentViaP2p ? " (P2P)" : "";
+      addAlarmLog(`Uzaktan anlık fotoğraf çekildi${viaTag}${tgNote}`);
       this.syncMeta({
-        lastEvent: `Anlık fotoğraf çekildi${tgNote}.`,
+        lastEvent: `Anlık fotoğraf çekildi${viaTag}${tgNote}.`,
         lastEventAt: Date.now()
       });
     } catch (err) {
@@ -652,7 +724,7 @@ export class CameraController {
     }
   }
 
-  async _handleRemoteCommand(cmd) {
+  async _handleRemoteCommand(cmd, context = {}) {
     if (appState.activeRole !== "camera" || this.sessionTakenOver) return;
     if (cmd.type === "set_motion") {
       if (cmd.value) {
@@ -668,7 +740,7 @@ export class CameraController {
       if (cmd.value) this.siren.start(true);
       else this.siren.stop(true);
     } else if (cmd.type === "take_snapshot") {
-      await this._handleRemoteSnapshotRequest(Boolean(cmd.sendTelegram));
+      await this._handleRemoteSnapshotRequest(Boolean(cmd.sendTelegram), context);
     }
   }
 
@@ -679,6 +751,7 @@ export class CameraController {
     this.activeSessionId = null;
     this.isNetworkOffline = false;
 
+    this.telemetry.stop();
     this.motion.stop(false);
     this.siren.dispose();
     this.clipRecorder.abortIfActive();

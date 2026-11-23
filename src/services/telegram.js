@@ -101,3 +101,24 @@ export async function sendTelegramVideo({
   formData.append("chat_id", chatId);
   return await postToEndpoint(`https://api.telegram.org/bot${token}/sendVideo`, formData);
 }
+
+export async function sendTelegramMessage({ token, chatId, text }) {
+  const { proxyBaseUrl } = getNetworkSettings();
+
+  const formData = new FormData();
+  formData.append("text", text);
+
+  if (proxyBaseUrl) {
+    const user = auth.currentUser;
+    if (!user) throw new Error("Proxy için yetkili oturum gerekli.");
+    const idToken = await user.getIdToken();
+    if (chatId) formData.append("chat_id", chatId);
+    return await postToEndpoint(`${proxyBaseUrl}/telegram/sendMessage`, formData, {
+      Authorization: `Bearer ${idToken}`
+    });
+  }
+
+  if (!token || !chatId) throw new Error("Telegram Token/Chat ID eksik.");
+  formData.append("chat_id", chatId);
+  return await postToEndpoint(`https://api.telegram.org/bot${token}/sendMessage`, formData);
+}

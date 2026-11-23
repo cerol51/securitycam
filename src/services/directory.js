@@ -126,6 +126,14 @@ export class RoomDirectory {
       countTag.className = "pill-meta";
       countTag.textContent = `${info.quality || "720p"} • ${info.viewerCount || 0} izleyici`;
       btn.appendChild(countTag);
+
+      if (typeof info.batteryPct === "number") {
+        const batTag = document.createElement("span");
+        const low = !info.charging && info.batteryPct <= 20;
+        batTag.className = "pill-meta" + (low ? " siren" : info.charging ? " alarm" : "");
+        batTag.textContent = `${info.charging ? "⚡" : "🔋"}%${info.batteryPct}`;
+        btn.appendChild(batTag);
+      }
     } else {
       const offTag = document.createElement("span");
       offTag.className = "pill-meta";

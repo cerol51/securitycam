@@ -1,4 +1,4 @@
-const CACHE_NAME = "ev-kamera-pwa-v4";
+const CACHE_NAME = "ev-kamera-pwa-v5";
 const APP_SHELL = [
   "./",
   "./index.html",
@@ -17,6 +17,7 @@ const APP_SHELL = [
   "./src/services/telegram.js",
   "./src/services/pwa.js",
   "./src/webrtc/ViewerPeerSession.js",
+  "./src/camera/DeviceTelemetry.js",
   "./src/camera/SirenEngine.js",
   "./src/camera/WakeLockBlackout.js",
   "./src/camera/ClipRecorder.js",

@@ -7,7 +7,9 @@ Eski/sabit Android veya masaüstü cihazları WebRTC tabanlı çoklu güvenlik k
 - **WebRTC 1-to-N Canlı Yayın:** Tekli büyük ekran ve **2×2 Çoklu İzleme** modu (2×2 modunda kamera otomatik olarak bitrate ve çözünürlüğü ölçekler).
 - **7/24 Dayanıklılık:** `.info/connected` ile ağ kesintisi sonrası otomatik yeniden kayıt, oda çakışma (session takeover) koruması, `Screen Wake Lock` ve siyah ekran karartma.
 - **İzleyici Toparlama:** `MAX_VIEWERS` dolu bildirimi, üstel geri çekilmeli (exponential backoff) otomatik yeniden bağlanma ve canlı `P2P / TURN + RTT` bağlantı göstergesi.
-- **Hareket Algılama & Alarm:** Kare farkı hareket takibi, Telegram anlık fotoğraf + video klip (hibrit) alarmı, uzaktan flaş/siren/anlık fotoğraf kontrolü ve iki yönlü Bas-Konuş (PTT).
+- **Hareket Algılama & Alarm:** Işık/pozlama değişimi telafili (mean-subtracted) hareket algılama, **8×6 interaktif ROI bölge maskeleme**, Telegram anlık fotoğraf + video klip (hibrit) alarmı ve iki yönlü Bas-Konuş (PTT).
+- **P2P `RTCDataChannel` Kontrol & Snapshot:** Tekli izleyici bağlıyken uzaktan komutlar ve anlık fotoğraflar Firebase RTDB kotası harcamadan doğrudan şifreli WebRTC DataChannel üzerinden aktarılır (bağlı değilse otomatik RTDB yedeği çalışır).
+- **Cihaz Sağlık Telemetrisi:** Kamera pil yüzdesi ve şarj durumu tüm izleyicilere gerçek zamanlı yansıtılır; şarj kesintisi (elektrik kesintisi) veya kritik düşük pil (%15) durumunda otomatik Telegram uyarısı gönderilir.
 - **Kullanıcı Bazlı Veri İzolasyonu:** Firebase RTDB verileri `users/<uid>/...` altında tutulur.
 - **Ephemeral TURN & Güvenli Telegram Proxy:** İsteğe bağlı tek Cloudflare Worker ile mobil CGNAT aşımı (Cloudflare Calls TURN) ve sunucu tarafında saklanan Telegram Bot Token desteği.
 

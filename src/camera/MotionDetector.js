@@ -1,6 +1,7 @@
-// Kare farkı hareket algılama, kalibrasyon ve Telegram alarm yöneticisi
+// Kare farkı hareket algılama (ışık/pozlama normalizasyonu + 8×6 ROI bölge maskeleme)
+// ve Telegram alarm yöneticisi
 
-import { MOTION_CONFIG } from "../config.js";
+import { MOTION_CONFIG, STORAGE_KEYS } from "../config.js";
 import { $, appState, addAlarmLog, captureStampedCanvas } from "../state.js";
 import { getTelegramCredentials, sendTelegramPhoto } from "../services/telegram.js";
 
@@ -10,17 +11,27 @@ export class MotionDetector {
     this.clipRecorder = clipRecorder;
     this.onMetaSync = onMetaSync;
 
-    const totalPixels = MOTION_CONFIG.WIDTH * MOTION_CONFIG.HEIGHT;
+    const { WIDTH, HEIGHT, ROI_COLS, ROI_ROWS } = MOTION_CONFIG;
+    const totalPixels = WIDTH * HEIGHT;
+    this.totalCells = ROI_COLS * ROI_ROWS;
+
     this.motionCanvas = document.createElement("canvas");
-    this.motionCanvas.width = MOTION_CONFIG.WIDTH;
-    this.motionCanvas.height = MOTION_CONFIG.HEIGHT;
+    this.motionCanvas.width = WIDTH;
+    this.motionCanvas.height = HEIGHT;
     this.motionCtx = this.motionCanvas.getContext("2d", { willReadFrequently: true });
 
-    // Çift buffer kullanarak GC baskısını azalt
+    // Çift buffer (GC baskısını azaltır)
     this.grayBufA = new Uint8Array(totalPixels);
     this.grayBufB = new Uint8Array(totalPixels);
     this.hasPrevFrame = false;
 
+    // 8×6 ROI maskesi (1 = izle, 0 = hariç tut) ve piksel düzeyi önbellek
+    this.roiCells = new Uint8Array(this.totalCells).fill(1);
+    this.pixelMask = new Uint8Array(totalPixels).fill(1);
+    this.activePixelCount = totalPixels;
+    this.roiEditOpen = false;
+
+    this.lightCompensation = true;
     this.enabled = false;
     this.timer = null;
     this.consecutiveHits = 0;
@@ -30,6 +41,7 @@ export class MotionDetector {
     this.badgeTimeout = null;
 
     this._loadSettings();
+    this._buildRoiGridUI();
     this._bindEvents();
   }
 
@@ -48,6 +60,22 @@ export class MotionDetector {
     $("motionThresholdRange").addEventListener("input", () => {
       this._updateThresholdVisual();
       this.saveSettings();
+    });
+
+    $("lightCompCheck").addEventListener("change", () => {
+      this.lightCompensation = $("lightCompCheck").checked;
+      localStorage.setItem(STORAGE_KEYS.LIGHT_COMP, this.lightCompensation ? "1" : "0");
+    });
+
+    $("toggleRoiEditBtn").addEventListener("click", () => {
+      this.setRoiEditOpen(!this.roiEditOpen);
+    });
+
+    $("clearRoiBtn").addEventListener("click", () => {
+      this.roiCells.fill(1);
+      this._rebuildPixelMask();
+      this._saveRoiMask();
+      this._renderRoiGridUI();
     });
 
     $("toggleMotionBtn").addEventListener("click", () => {
@@ -77,6 +105,19 @@ export class MotionDetector {
     $("clipDurationSelect").value = localStorage.getItem("cam_clip_duration") || "10";
     $("motionThresholdRange").value = localStorage.getItem("cam_motion_threshold") || "4";
     $("cooldownSelect").value = localStorage.getItem("cam_motion_cooldown") || "30";
+
+    const savedLightComp = localStorage.getItem(STORAGE_KEYS.LIGHT_COMP);
+    this.lightCompensation = savedLightComp !== "0";
+    $("lightCompCheck").checked = this.lightCompensation;
+
+    const savedRoi = localStorage.getItem(STORAGE_KEYS.ROI_MASK);
+    if (savedRoi && savedRoi.length === this.totalCells) {
+      for (let i = 0; i < this.totalCells; i++) {
+        this.roiCells[i] = savedRoi[i] === "0" ? 0 : 1;
+      }
+    }
+    this._rebuildPixelMask();
+
     const savedRoom = localStorage.getItem("cam_last_room");
     if (savedRoom) $("roomInput").value = savedRoom;
     this._updateThresholdVisual();
@@ -90,6 +131,84 @@ export class MotionDetector {
     localStorage.setItem("cam_clip_duration", $("clipDurationSelect").value);
     localStorage.setItem("cam_motion_threshold", $("motionThresholdRange").value);
     localStorage.setItem("cam_motion_cooldown", $("cooldownSelect").value);
+  }
+
+  _saveRoiMask() {
+    let serialized = "";
+    for (let i = 0; i < this.totalCells; i++) {
+      serialized += this.roiCells[i] ? "1" : "0";
+    }
+    localStorage.setItem(STORAGE_KEYS.ROI_MASK, serialized);
+  }
+
+  _rebuildPixelMask() {
+    const { WIDTH, HEIGHT, ROI_COLS, ROI_ROWS } = MOTION_CONFIG;
+    const cellW = WIDTH / ROI_COLS;
+    const cellH = HEIGHT / ROI_ROWS;
+    let active = 0;
+
+    for (let y = 0; y < HEIGHT; y++) {
+      const r = Math.min(ROI_ROWS - 1, Math.floor(y / cellH));
+      for (let x = 0; x < WIDTH; x++) {
+        const c = Math.min(ROI_COLS - 1, Math.floor(x / cellW));
+        const val = this.roiCells[r * ROI_COLS + c];
+        this.pixelMask[y * WIDTH + x] = val;
+        if (val) active++;
+      }
+    }
+    this.activePixelCount = active;
+  }
+
+  _buildRoiGridUI() {
+    const overlay = $("roiOverlay");
+    if (!overlay) return;
+    overlay.innerHTML = "";
+    for (let idx = 0; idx < this.totalCells; idx++) {
+      const cell = document.createElement("button");
+      cell.type = "button";
+      cell.className = "roi-cell";
+      cell.dataset.idx = String(idx);
+      cell.title = "Bölgeyi hareket algılamadan hariç tut / dahil et";
+      cell.addEventListener("click", (e) => {
+        e.stopPropagation();
+        this.roiCells[idx] = this.roiCells[idx] ? 0 : 1;
+        this._rebuildPixelMask();
+        this._saveRoiMask();
+        this._renderRoiGridUI();
+      });
+      overlay.appendChild(cell);
+    }
+    this._renderRoiGridUI();
+  }
+
+  _renderRoiGridUI() {
+    const overlay = $("roiOverlay");
+    let maskedCount = 0;
+    if (overlay) {
+      for (let idx = 0; idx < this.totalCells; idx++) {
+        const isMasked = this.roiCells[idx] === 0;
+        if (isMasked) maskedCount++;
+        const cell = overlay.children[idx];
+        if (cell) cell.classList.toggle("masked", isMasked);
+      }
+    }
+    const summary = $("roiSummaryText");
+    if (summary) {
+      summary.textContent =
+        maskedCount === 0
+          ? "Tüm ekran izleniyor (0 bölge maskeli)"
+          : `${maskedCount} / ${this.totalCells} bölge hariç tutuldu`;
+    }
+    $("clearRoiBtn").disabled = maskedCount === 0;
+  }
+
+  setRoiEditOpen(open) {
+    this.roiEditOpen = Boolean(open);
+    $("roiOverlay").classList.toggle("hidden", !this.roiEditOpen);
+    $("toggleRoiEditBtn").textContent = this.roiEditOpen
+      ? "Maske Düzenlemeyi Bitir"
+      : "Bölge Maskesi (ROI)";
+    $("toggleRoiEditBtn").className = this.roiEditOpen ? "warn compact" : "secondary compact";
   }
 
   _updateModeControls() {
@@ -155,6 +274,7 @@ export class MotionDetector {
     }
     this.hasPrevFrame = false;
     this.consecutiveHits = 0;
+    this.setRoiEditOpen(false);
     $("motionAlertBadge").classList.add("hidden");
     this.updateUI(false);
     if (wasEnabled) {
@@ -196,13 +316,36 @@ export class MotionDetector {
       return;
     }
 
+    const activeCount = this.activePixelCount;
+    if (activeCount === 0) {
+      this._swapBuffers();
+      $("liveMotionPct").textContent = "%0.0 (Maskeli)";
+      $("motionMeterFill").style.width = "0%";
+      return;
+    }
+
+    // Işık / oto-pozlama telafisi: aktif piksellerin ortalama parlaklık kaymasını çıkar
+    let meanDelta = 0;
+    if (this.lightCompensation) {
+      let diffSum = 0;
+      for (let i = 0; i < totalPixels; i++) {
+        if (this.pixelMask[i]) {
+          diffSum += currGray[i] - prevGray[i];
+        }
+      }
+      meanDelta = diffSum / activeCount;
+    }
+
     let changed = 0;
     for (let i = 0; i < totalPixels; i++) {
-      if (Math.abs(currGray[i] - prevGray[i]) > PIXEL_DIFF_LIMIT) changed++;
+      if (!this.pixelMask[i]) continue;
+      if (Math.abs((currGray[i] - prevGray[i]) - meanDelta) > PIXEL_DIFF_LIMIT) {
+        changed++;
+      }
     }
     this._swapBuffers();
 
-    const changePct = (changed / totalPixels) * 100;
+    const changePct = (changed / activeCount) * 100;
     const thresholdPct = parseFloat($("motionThresholdRange").value);
 
     $("liveMotionPct").textContent = `%${changePct.toFixed(1)}`;
@@ -245,7 +388,7 @@ export class MotionDetector {
 
     const { configured } = getTelegramCredentials();
     if (!configured) {
-      $("motionStatusMsg").textContent = `Hareket (%${changePct.toFixed(1)}) algılandı ancak Telegram Token/Chat ID girilmemiş.`;
+      $("motionStatusMsg").textContent = `Hareket (%${changePct.toFixed(1)}) algılandı ancak Telegram ayarı (Proxy veya Token/Chat ID) yapılmamış.`;
       addAlarmLog(`Hareket (%${changePct.toFixed(1)}) - Telegram ayarı eksik`);
       this.lastAlertSentAt = now;
       return;
@@ -269,7 +412,7 @@ export class MotionDetector {
     if (this.isSendingPhoto) return;
     const { token, chatId, configured } = getTelegramCredentials();
     if (!configured) {
-      $("motionStatusMsg").textContent = "Lütfen önce Telegram Bot Token ve Chat ID alanlarını doldur.";
+      $("motionStatusMsg").textContent = "Lütfen önce Telegram Bot Token ve Chat ID alanlarını doldur (veya Proxy URL tanımla).";
       return;
     }
 
